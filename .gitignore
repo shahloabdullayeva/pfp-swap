@@ -1,0 +1,6 @@
+charlotte_session.session
+venv/
+__pycache__/
+*.pyc
+.env
+
