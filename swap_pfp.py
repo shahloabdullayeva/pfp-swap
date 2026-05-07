@@ -4,7 +4,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.functions.photos import UploadProfilePhotoRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, GetUserPhotosRequest, DeletePhotosRequest
+from telethon.tl.types import InputPhoto
 
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
@@ -14,9 +15,8 @@ mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
 
 def is_online_now():
     now = datetime.now(ZoneInfo('Asia/Tashkent'))
-    weekday = now.weekday() 
+    weekday = now.weekday()
     hour = now.hour
-
     if weekday == 2 and hour >= 17:
         return True
     if weekday == 3 and (hour < 1 or hour >= 16):
@@ -40,6 +40,23 @@ print(f"Setting pfp to: {mode}")
 session = StringSession(session_string) if session_string else 'charlotte_session'
 
 with TelegramClient(session, api_id, api_hash) as client:
+    me = client.get_me()
+
+    old_photos = client(GetUserPhotosRequest(
+        user_id=me.id,
+        offset=0,
+        max_id=0,
+        limit=100
+    )).photos
+
     file = client.upload_file(image_path)
     client(UploadProfilePhotoRequest(file=file))
-    print("Done.")
+    print("New pfp uploaded.")
+
+    if old_photos:
+        input_photos = [
+            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
+            for p in old_photos
+        ]
+        client(DeletePhotosRequest(id=input_photos))
+        print(f"Deleted {len(old_photos)} old pfp(s).")
