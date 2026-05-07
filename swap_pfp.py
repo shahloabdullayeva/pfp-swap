@@ -42,21 +42,25 @@ session = StringSession(session_string) if session_string else 'charlotte_sessio
 with TelegramClient(session, api_id, api_hash) as client:
     me = client.get_me()
 
-    old_photos = client(GetUserPhotosRequest(
+    file = client.upload_file(image_path)
+    result = client(UploadProfilePhotoRequest(file=file))
+    new_photo_id = result.photo.id
+    print(f"New pfp uploaded (id={new_photo_id}).")
+
+    all_photos = client(GetUserPhotosRequest(
         user_id=me.id,
         offset=0,
         max_id=0,
         limit=100
     )).photos
 
-    file = client.upload_file(image_path)
-    client(UploadProfilePhotoRequest(file=file))
-    print("New pfp uploaded.")
-
-    if old_photos:
+    to_delete = [p for p in all_photos if p.id != new_photo_id]
+    if to_delete:
         input_photos = [
             InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
-            for p in old_photos
+            for p in to_delete
         ]
         client(DeletePhotosRequest(id=input_photos))
-        print(f"Deleted {len(old_photos)} old pfp(s).")
+        print(f"Deleted {len(to_delete)} old pfp(s).")
+    else:
+        print("No old pfps to delete.")
