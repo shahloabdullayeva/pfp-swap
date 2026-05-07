@@ -12,14 +12,27 @@ session_string = os.environ.get('SESSION_STRING')
 
 mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
 
-if mode == 'auto':
+def is_online_now():
     now = datetime.now(ZoneInfo('Asia/Tashkent'))
-    weekday = now.weekday()
+    weekday = now.weekday() 
     hour = now.hour
-    if (weekday == 2 and hour >= 17) or weekday in (3, 4, 5) or (weekday == 6 and hour < 1):
-        mode = 'online'
-    else:
-        mode = 'offline'
+
+    if weekday == 2 and hour >= 17:
+        return True
+    if weekday == 3 and (hour < 1 or hour >= 16):
+        return True
+    if weekday == 4 and (hour < 1 or hour >= 17):
+        return True
+    if weekday == 5 and (hour < 1 or hour >= 16):
+        return True
+    if weekday == 6 and (hour < 1 or hour >= 16):
+        return True
+    if weekday == 0 and hour < 1:
+        return True
+    return False
+
+if mode == 'auto':
+    mode = 'online' if is_online_now() else 'offline'
 
 image_path = f'images/{mode}.jpg'
 print(f"Setting pfp to: {mode}")
