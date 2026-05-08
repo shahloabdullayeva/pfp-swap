@@ -1,0 +1,62 @@
+import os
+import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from telethon.sync import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, GetUserPhotosRequest, DeletePhotosRequest
+from telethon.tl.types import InputPhoto
+
+api_id = int(os.environ['API_ID_V'])
+api_hash = os.environ['API_HASH_V']
+session_string = os.environ.get('SESSION_STRING_V')
+
+mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
+
+def is_online_now():
+    now = datetime.now(ZoneInfo('Asia/Tashkent'))
+    weekday = now.weekday()
+    hour = now.hour
+    if weekday == 6 and 13 <= hour < 21:
+        return True
+    if weekday == 0 and 13 <= hour < 21:
+        return True
+    if weekday == 4 and hour >= 17:
+        return True
+    if weekday == 5 and (hour < 1 or hour >= 17):
+        return True
+    if weekday == 6 and hour < 1:
+        return True
+    return False
+
+if mode == 'auto':
+    mode = 'online' if is_online_now() else 'offline'
+
+image_path = f'images/{mode}_v.jpg' if mode == 'online' else 'images/offline_v.jpg'
+print(f"Setting pfp to: {mode}")
+
+session = StringSession(session_string) if session_string else 'vazira_session'
+
+with TelegramClient(session, api_id, api_hash) as client:
+    me = client.get_me()
+    file = client.upload_file(image_path)
+    result = client(UploadProfilePhotoRequest(file=file))
+    new_photo_id = result.photo.id
+    print(f"New pfp uploaded.")
+
+    all_photos = client(GetUserPhotosRequest(
+        user_id=me.id,
+        offset=0,
+        max_id=0,
+        limit=100
+    )).photos
+
+    to_delete = [p for p in all_photos if p.id != new_photo_id]
+    if to_delete:
+        input_photos = [
+            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
+            for p in to_delete
+        ]
+        client(DeletePhotosRequest(id=input_photos))
+        print(f"Deleted {len(to_delete)} old pfp(s).")
+
