@@ -1,4 +1,4 @@
-"""Log who viewed Charlotte's Telegram stories.
+"""Log who viewed your main account's Telegram stories.
 
 Requires Telegram Premium (only premium accounts can see story viewers
 beyond the first 100 / past 24h).
@@ -21,9 +21,9 @@ from telethon.tl.functions.stories import (
     GetStoryViewsListRequest,
 )
 
-api_id = int(os.environ['API_ID'])
-api_hash = os.environ['API_HASH']
-session_string = os.environ.get('SESSION_STRING')
+api_id = int(os.environ['API_ID_MAIN'])
+api_hash = os.environ['API_HASH_MAIN']
+session_string = os.environ.get('SESSION_STRING_MAIN')
 
 LOG_PATH = Path('story_views.csv')
 FIELDS = [
@@ -126,7 +126,7 @@ def reaction_str(reaction):
 
 
 def main():
-    session = StringSession(session_string) if session_string else 'charlotte_session'
+    session = StringSession(session_string) if session_string else 'main_session'
     now_iso = datetime.now(timezone.utc).isoformat(timespec='seconds')
 
     existing = load_existing()
