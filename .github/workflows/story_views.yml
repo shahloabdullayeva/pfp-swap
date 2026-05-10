@@ -1,0 +1,41 @@
+name: Log Story Views
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: story-views
+  cancel-in-progress: false
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install telethon
+      - name: Fetch story viewers
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+        run: python log_story_views.py
+      - name: Commit log if changed
+        run: |
+          if [[ -n "$(git status --porcelain story_views.csv)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add story_views.csv
+            git commit -m "log story views"
+            git push
+          else
+            echo "No changes to story_views.csv"
+          fi
