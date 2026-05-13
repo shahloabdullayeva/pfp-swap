@@ -2,17 +2,12 @@ name: PFP Auto Swap
 
 on:
   schedule:
-    - cron: '*/5 11-12 * * 3'
-    - cron: '*/5 10-11 * * 4'
-    - cron: '*/5 11-12 * * 5'
-    - cron: '*/5 10-11 * * 6'
-    - cron: '*/5 10-11 * * 0'
-    - cron: '*/5 19-20 * * 3'
-    - cron: '*/5 18-19 * * 4'
-    - cron: '*/5 19-20 * * 5'
-    - cron: '*/5 18-19 * * 6'
-    - cron: '*/5 18-19 * * 0'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+
+concurrency:
+  group: pfp-charlotte
+  cancel-in-progress: false
 
 jobs:
   swap:
@@ -23,6 +18,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
       - name: Install dependencies
         run: pip install telethon
       - name: Run swap script
