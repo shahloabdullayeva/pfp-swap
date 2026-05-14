@@ -2,13 +2,12 @@ name: Vazira PFP Swap
 
 on:
   schedule:
-    - cron: '*/5 7-8 * * 0,1'
-    - cron: '*/5 15-16 * * 0,1'
-    - cron: '*/5 11-12 * * 5'
-    - cron: '*/5 19-20 * * 5'
-    - cron: '*/5 11-12 * * 6'
-    - cron: '*/5 19-20 * * 6'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+
+concurrency:
+  group: pfp-vazira
+  cancel-in-progress: false
 
 jobs:
   swap:
@@ -19,6 +18,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
       - name: Install dependencies
         run: pip install telethon
       - name: Run swap script
@@ -27,4 +27,3 @@ jobs:
           API_HASH_V: ${{ secrets.API_HASH_V }}
           SESSION_STRING_V: ${{ secrets.SESSION_STRING_V }}
         run: python swap_vazira.py auto
-
