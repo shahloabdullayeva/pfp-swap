@@ -15,19 +15,19 @@ mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
 
 def is_online_now():
     now = datetime.now(ZoneInfo('Asia/Tashkent'))
-    weekday = now.weekday()
-    hour = now.hour
-    if weekday == 2 and hour >= 17:
+    wd = now.weekday()
+    h = now.hour
+    # Wed 17-23, Fri 17-23
+    if wd in (2, 4) and h >= 17:
         return True
-    if weekday == 3 and (hour < 1 or hour >= 16):
+    # Thu 00 (Wed shift end), Thu 16-23
+    if wd == 3 and (h < 1 or h >= 16):
         return True
-    if weekday == 4 and (hour < 1 or hour >= 17):
+    # Sat 00 (Fri shift end), Sat 16-23
+    if wd == 5 and (h < 1 or h >= 16):
         return True
-    if weekday == 5 and (hour < 1 or hour >= 16):
-        return True
-    if weekday == 6 and (hour < 1 or hour >= 16):
-        return True
-    if weekday == 0 and hour < 1:
+    # Sun 16-23
+    if wd == 6 and h >= 16:
         return True
     return False
 
