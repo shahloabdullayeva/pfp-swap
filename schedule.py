@@ -11,7 +11,7 @@ def _now(now):
 def charlotte_is_online(now=None):
     now = _now(now)
     hour = now.hour
-    return 4 <= hour < 12
+    return hour >= 16
 
 
 def vazira_is_online(now=None):
