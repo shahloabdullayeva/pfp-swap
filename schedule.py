@@ -10,8 +10,15 @@ def _now(now):
 
 def charlotte_is_online(now=None):
     now = _now(now)
+    weekday = now.weekday()  # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
     hour = now.hour
-    return hour >= 16
+    if weekday == 0:   # Mon: carryover from Sun until 04:00, then offline
+        return hour < 4
+    if weekday == 1:   # Tue: always offline
+        return False
+    if weekday == 2:   # Wed: online from 16:00, no carryover (Tue is offline)
+        return hour >= 16
+    return hour < 4 or hour >= 16  # Thu-Sun: carryover 0-3, offline 4-15, online 16+
 
 
 def vazira_is_online(now=None):

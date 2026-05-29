@@ -17,40 +17,42 @@ def t(day, hour, minute=0):
 
 
 CHARLOTTE_CASES = [
+    # Mon: carryover from Sun until 04:00, offline rest of day
+    ('mon', 0, True), ('mon', 3, True), ('mon', 4, False),
+    ('mon', 15, False), ('mon', 23, False),
     # Tue: never online
     ('tue', 0, False), ('tue', 12, False), ('tue', 23, False),
-    # Wed: online from 17:00
-    ('wed', 0, False), ('wed', 16, False), ('wed', 16, False),
-    ('wed', 17, True), ('wed', 23, True),
-    # Thu: online until 01:00, then online again from 16:00
-    ('thu', 0, True), ('thu', 1, False), ('thu', 15, False),
-    ('thu', 16, True), ('thu', 23, True),
-    # Fri: online until 01:00, then online again from 17:00
-    ('fri', 0, True), ('fri', 1, False), ('fri', 16, False),
-    ('fri', 17, True), ('fri', 23, True),
-    # Sat: online until 01:00, then online again from 16:00
-    ('sat', 0, True), ('sat', 1, False), ('sat', 15, False),
-    ('sat', 16, True), ('sat', 23, True),
-    # Sun: online until 01:00, then online again from 16:00
-    ('sun', 0, True), ('sun', 1, False), ('sun', 15, False),
-    ('sun', 16, True), ('sun', 23, True),
-    # Mon: online until 01:00, then offline rest of day
-    ('mon', 0, True), ('mon', 1, False), ('mon', 12, False),
-    ('mon', 23, False),
+    # Wed: online from 16:00, no carryover (Tue is offline)
+    ('wed', 0, False), ('wed', 15, False), ('wed', 16, True), ('wed', 23, True),
+    # Thu: carryover 0-3, offline 4-15, online 16+
+    ('thu', 0, True), ('thu', 3, True), ('thu', 4, False),
+    ('thu', 15, False), ('thu', 16, True), ('thu', 23, True),
+    # Fri: same pattern as Thu
+    ('fri', 0, True), ('fri', 3, True), ('fri', 4, False),
+    ('fri', 15, False), ('fri', 16, True), ('fri', 23, True),
+    # Sat: same pattern as Thu
+    ('sat', 0, True), ('sat', 3, True), ('sat', 4, False),
+    ('sat', 15, False), ('sat', 16, True), ('sat', 23, True),
+    # Sun: same pattern as Thu
+    ('sun', 0, True), ('sun', 3, True), ('sun', 4, False),
+    ('sun', 15, False), ('sun', 16, True), ('sun', 23, True),
 ]
 
 # Boundary minutes: ensure transitions happen exactly on the hour, not before/after.
 CHARLOTTE_BOUNDARIES = [
-    ('wed', 16, 59, False), ('wed', 17, 0, True),
-    ('thu', 0, 59, True), ('thu', 1, 0, False),
+    # Mon: offline at 04:00
+    ('mon', 3, 59, True), ('mon', 4, 0, False),
+    # Wed: online at 16:00 (no carryover from Tue)
+    ('wed', 15, 59, False), ('wed', 16, 0, True),
+    # Thu-Sun: offline at 04:00, online at 16:00
+    ('thu', 3, 59, True), ('thu', 4, 0, False),
     ('thu', 15, 59, False), ('thu', 16, 0, True),
-    ('fri', 0, 59, True), ('fri', 1, 0, False),
-    ('fri', 16, 59, False), ('fri', 17, 0, True),
-    ('sat', 0, 59, True), ('sat', 1, 0, False),
+    ('fri', 3, 59, True), ('fri', 4, 0, False),
+    ('fri', 15, 59, False), ('fri', 16, 0, True),
+    ('sat', 3, 59, True), ('sat', 4, 0, False),
     ('sat', 15, 59, False), ('sat', 16, 0, True),
-    ('sun', 0, 59, True), ('sun', 1, 0, False),
+    ('sun', 3, 59, True), ('sun', 4, 0, False),
     ('sun', 15, 59, False), ('sun', 16, 0, True),
-    ('mon', 0, 59, True), ('mon', 1, 0, False),
 ]
 
 VAZIRA_CASES = [
