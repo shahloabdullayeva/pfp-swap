@@ -10,6 +10,7 @@ from telethon.tl.types import InputPhoto
 from telethon.errors import FloodWaitError
 
 from schedule import vazira_is_online
+from override import get_override
 
 api_id = int(os.environ['API_ID_V'])
 api_hash = os.environ['API_HASH_V']
@@ -18,7 +19,12 @@ session_string = os.environ.get('SESSION_STRING_V')
 mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
 
 if mode == 'auto':
-    mode = 'online' if vazira_is_online() else 'offline'
+    override = get_override('vazira')
+    if override:
+        mode = override
+        print(f"Override from saved messages: {mode}")
+    else:
+        mode = 'online' if vazira_is_online() else 'offline'
 
 image_path = f'images/{mode}_v.jpg'
 print(f"Setting pfp to: {mode}")
