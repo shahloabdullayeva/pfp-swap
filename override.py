@@ -7,7 +7,7 @@ from telethon.sessions import StringSession
 def get_override(target):
     """
     Check Charlotte's Saved Messages for a manual override command sent in the
-    last 4 hours. Commands: /on me, /on Vazira, /off, /off me, /off Vazira.
+    last 12 hours. Commands: /on me, /on Vazira, /off, /off me, /off Vazira.
     target: 'charlotte' or 'vazira'
     Returns: 'online', 'offline', or None (no override found)
     Requires API_ID, API_HASH, SESSION_STRING env vars (Charlotte's account).
@@ -19,7 +19,7 @@ def get_override(target):
     session_string = os.environ.get('SESSION_STRING')
     session = StringSession(session_string) if session_string else 'charlotte_session'
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=4)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
     with TelegramClient(session, int(api_id), api_hash) as client:
         for msg in client.iter_messages('me', limit=20):
             if msg.date < cutoff:

@@ -19,7 +19,7 @@ session = StringSession(session_string) if session_string else 'charlotte_sessio
 with TelegramClient(session, api_id, api_hash) as client:
     if mode == 'auto':
         override = None
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=4)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
         for msg in client.iter_messages('me', limit=20):
             if msg.date < cutoff:
                 break
