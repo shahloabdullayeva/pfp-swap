@@ -1,6 +1,5 @@
 import os
 import sys
-from datetime import datetime, timedelta, timezone
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, GetUserPhotosRequest, DeletePhotosRequest
@@ -14,32 +13,14 @@ session_string = os.environ.get('SESSION_STRING')
 
 mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
 
+if mode == 'auto':
+    mode = 'online' if charlotte_is_online() else 'offline'
+
 session = StringSession(session_string) if session_string else 'charlotte_session'
 
 with TelegramClient(session, api_id, api_hash) as client:
-    if mode == 'auto':
-        override = None
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
-        for msg in client.iter_messages('me', limit=20):
-            if msg.date < cutoff:
-                break
-            text = (msg.text or '').strip()
-            if text == '/on me':
-                override = 'online'
-                break
-            if text in ('/off', '/off me'):
-                override = 'offline'
-                break
-
-        if override:
-            mode = override
-            print(f"Override from saved messages: {mode}")
-        else:
-            mode = 'online' if charlotte_is_online() else 'offline'
-
     image_path = f'images/{mode}.jpg'
     print(f"Setting pfp to: {mode}")
-
     me = client.get_me()
     file = client.upload_file(image_path)
     result = client(UploadProfilePhotoRequest(file=file))
