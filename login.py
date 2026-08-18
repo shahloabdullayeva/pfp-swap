@@ -1,7 +1,10 @@
+import os
+from telethon.sessions import StringSession
 from telethon.sync import TelegramClient
 
-api_id = 31624508
-api_hash = '8b85645074f73a6e5418c90e013d3eae'
+api_id = int(os.environ['API_ID'])
+api_hash = os.environ['API_HASH']
 
 with TelegramClient('charlotte_session', api_id, api_hash) as client:
-    print("Logged in as:", client.get_me().username31624508)
+    print("Logged in as:", client.get_me().username)
+    print(StringSession.save(client.session))
