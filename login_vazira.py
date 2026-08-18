@@ -1,7 +1,8 @@
+import os
 from telethon.sync import TelegramClient
 
-api_id =32424882
-api_hash = 'f3deef8a9d70e800e83ce57fffcb90e3'
+api_id = int(os.environ['API_ID_V'])
+api_hash = os.environ['API_HASH_V']
 
 with TelegramClient('vazira_session', api_id, api_hash) as client:
     me = client.get_me()
