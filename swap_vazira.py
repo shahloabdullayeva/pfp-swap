@@ -8,30 +8,21 @@ from telethon.sessions import StringSession
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, GetUserPhotosRequest, DeletePhotosRequest
 from telethon.tl.types import InputPhoto
 from telethon.errors import FloodWaitError
-
 from schedule import vazira_is_online
-
 api_id = int(os.environ['API_ID_V'])
 api_hash = os.environ['API_HASH_V']
 session_string = os.environ.get('SESSION_STRING_V')
-
 mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
-
 if mode == 'auto':
     mode = 'online' if vazira_is_online() else 'offline'
-
 image_path = f'images/{mode}_v.jpg'
 print(f"Setting pfp to: {mode}")
-
-
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
         for chunk in iter(lambda: f.read(8192), b''):
             h.update(chunk)
     return h.hexdigest()
-
-
 def with_retry(fn, attempts=4):
     last_err = None
     for i in range(attempts):
@@ -43,10 +34,7 @@ def with_retry(fn, attempts=4):
             time.sleep(wait)
             last_err = e
     raise last_err
-
-
 session = StringSession(session_string) if session_string else 'vazira_session'
-
 with TelegramClient(session, api_id, api_hash) as client:
     me = client.get_me()
     desired_hash = sha256_file(image_path)
@@ -82,3 +70,6 @@ with TelegramClient(session, api_id, api_hash) as client:
             print(f"Deleted {len(to_delete)} old pfp(s).")
         except Exception as e:
             print(f"Failed to delete old pfps: {e}")
+    emoji = "🟢" if mode == "online" else "🔴"
+    with_retry(lambda: client.send_message('me', f'{emoji} pfp switched to {mode}'))
+    print("Notification sent to Saved Messages.")

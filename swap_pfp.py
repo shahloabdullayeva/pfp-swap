@@ -4,20 +4,14 @@ from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.functions.photos import UploadProfilePhotoRequest, GetUserPhotosRequest, DeletePhotosRequest
 from telethon.tl.types import InputPhoto
-
 from schedule import charlotte_is_online
-
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
 session_string = os.environ.get('SESSION_STRING')
-
 mode = sys.argv[1] if len(sys.argv) > 1 else 'auto'
-
 if mode == 'auto':
     mode = 'online' if charlotte_is_online() else 'offline'
-
 session = StringSession(session_string) if session_string else 'charlotte_session'
-
 with TelegramClient(session, api_id, api_hash) as client:
     image_path = f'images/{mode}.jpg'
     print(f"Setting pfp to: {mode}")
@@ -39,3 +33,6 @@ with TelegramClient(session, api_id, api_hash) as client:
         print(f"Deleted {len(to_delete)} old pfp(s).")
     else:
         print("No old pfps to delete.")
+    emoji = "🟢" if mode == "online" else "🔴"
+    client.send_message('me', f'{emoji} pfp switched to {mode}')
+    print("Notification sent to Saved Messages.")
