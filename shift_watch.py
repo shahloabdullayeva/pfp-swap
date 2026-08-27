@@ -13,6 +13,9 @@ SHIFT_START_HOUR = 16
 CUSTOMER_WAIT_MIN = 15   # customer msg with no staff reply for this long -> check
 FOLLOWUP_WAIT_MIN = 20   # Charlotte's "checking..." with no follow-up -> check
 SWEEP_SECONDS = 300
+# Small yes/no judgements. Sonnet is ~1.7x cheaper than Opus and scores the same
+# on the watcher test cases; Haiku missed unanswered customers, so don't go lower.
+WATCH_MODEL = os.environ.get('WATCH_MODEL', 'claude-sonnet-5')
 END_HOUR, END_MINUTE = 23, 55  # exit before midnight cron jobs reconnect
 
 api_id = int(os.environ['API_ID'])
@@ -53,7 +56,7 @@ def ai_check(name, msgs):
     transcript = '\n'.join(
         f"[{t.strftime('%H:%M')}] {who}: {text}" for t, who, text, _ in msgs)
     response = ai.messages.parse(
-        model="claude-opus-5",
+        model=WATCH_MODEL,
         max_tokens=1500,
         system=WATCH_PROMPT,
         messages=[{"role": "user", "content": f"Chat: {name}\n\n{transcript}"}],

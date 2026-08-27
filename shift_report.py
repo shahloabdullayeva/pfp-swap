@@ -18,6 +18,8 @@ api_hash = os.environ['API_HASH']
 session_string = os.environ.get('SESSION_STRING')
 session = StringSession(session_string) if session_string else 'charlotte_session'
 anthropic_key = os.environ.get('ANTHROPIC_API_KEY')
+# Nightly deep read of every group — kept on the strongest model by default.
+REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-opus-5')
 
 
 def default_window():
@@ -28,9 +30,19 @@ def default_window():
     return start, end
 
 
+def norm(name):
+    """Normalize a sender/agent name to its first token, title-cased."""
+    name = (name or '').strip()
+    if name.upper() == 'ME':
+        return 'ME'
+    parts = name.split()
+    return parts[0].title() if parts else ''
+
+
 def collect_dialogs(client, start_utc, end_utc):
     groups = []
     users = []
+    activity = {}
     for dialog in client.iter_dialogs():
         is_user = dialog.is_user and not dialog.is_group
         if not dialog.is_group and not is_user:
@@ -58,8 +70,13 @@ def collect_dialogs(client, start_utc, end_utc):
                 sender = msg.sender
                 who = getattr(sender, 'first_name', None) or getattr(sender, 'title', None) or 'Customer'
             text = (msg.text or '[media]').strip()[:300]
-            ts = msg.date.astimezone(TZ).strftime('%H:%M')
-            transcript.append(f'[{ts}] {who}: {text}')
+            when = msg.date.astimezone(TZ)
+            transcript.append(f"[{when:%H:%M}] {who}: {text}")
+            key = norm(who)
+            if key:
+                a = activity.setdefault(key, {'first': when, 'last': when})
+                a['first'] = min(a['first'], when)
+                a['last'] = max(a['last'], when)
         if received or sent:
             transcript.reverse()
             record = {
@@ -69,7 +86,7 @@ def collect_dialogs(client, start_utc, end_utc):
                 'transcript': transcript[-TRANSCRIPT_MAX_MSGS:],
             }
             (users if is_user else groups).append(record)
-    return groups, users
+    return groups, users, activity
 
 
 def analyze_tasks(tg, groups):
@@ -124,7 +141,7 @@ def analyze_tasks(tg, groups):
     for done, g in enumerate(todo, start=1):
         try:
             response = ai.messages.parse(
-                model="claude-opus-5",
+                model=REPORT_MODEL,
                 max_tokens=4000,
                 system=system,
                 messages=[{
@@ -177,7 +194,7 @@ start_utc = start.astimezone(UTC)
 end_utc = end.astimezone(UTC)
 
 with TelegramClient(session, api_id, api_hash) as client:
-    groups, users = collect_dialogs(client, start_utc, end_utc)
+    groups, users, activity = collect_dialogs(client, start_utc, end_utc)
 
     active = [g for g in groups if g['received'] > 0]
     total_received = sum(d['received'] for d in groups + users)
@@ -195,21 +212,32 @@ with TelegramClient(session, api_id, api_hash) as client:
                       if t['handled_by'].strip().lower() == 'nobody']
         agents = {}
         for t in tasks:
-            key = t['handled_by'].strip()
-            if key.upper() == 'ME' or key.lower() == 'nobody':
+            key = norm(t['handled_by'])
+            if key == 'ME' or key.lower() == 'nobody' or not key:
                 continue
-            key = key.title()
             agents[key] = agents.get(key, 0) + 1
 
         def pct(n):
             return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
 
+        def detail(key, n):
+            """Active window (first->last message) and tasks per hour on duty."""
+            a = activity.get(key)
+            if not a:
+                return ''
+            hours = (a['last'] - a['first']).total_seconds() / 3600
+            if hours < 0.5:
+                return f" — from {a['first']:%H:%M}"
+            return (f" — {a['first']:%H:%M}–{a['last']:%H:%M}"
+                    f" ({n / hours:.1f}/hr)")
+
         lines.append(f"📋 CS tasks: {len(tasks)}")
-        lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})")
+        lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})"
+                     f"{detail('ME', len(by_me))}")
         if agents:
-            lines.append("👥 Team:")
+            lines.append("👥 Team (active window, tasks per hour on duty):")
             for name, n in sorted(agents.items(), key=lambda kv: -kv[1]):
-                lines.append(f"   • {name}: {n} ({pct(n)})")
+                lines.append(f"   • {name}: {n} ({pct(n)}){detail(name, n)}")
         lines.append(f"❌ No reply: {len(unanswered)} ({pct(len(unanswered))})")
         if unanswered:
             lines.append("No reply:")
