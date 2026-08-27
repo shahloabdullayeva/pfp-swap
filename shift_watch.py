@@ -2,12 +2,14 @@ import os
 import sys
 import asyncio
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
 TZ = ZoneInfo('Asia/Tashkent')
+UTC = ZoneInfo('UTC')
+SHIFT_START_HOUR = 16
 CUSTOMER_WAIT_MIN = 15   # customer msg with no staff reply for this long -> check
 FOLLOWUP_WAIT_MIN = 20   # Charlotte's "checking..." with no follow-up -> check
 SWEEP_SECONDS = 300
@@ -60,6 +62,51 @@ def ai_check(name, msgs):
     return response.parsed_output
 
 
+async def seed_state(client, state, since_utc):
+    """Load messages already sent this shift, so a 16:05 start still sees 16:00."""
+    seeded = 0
+    async for dialog in client.iter_dialogs():
+        is_user = dialog.is_user and not dialog.is_group
+        if not dialog.is_group and not is_user:
+            continue
+        if is_user:
+            ent = dialog.entity
+            if getattr(ent, 'bot', False) or getattr(ent, 'is_self', False):
+                continue
+        if dialog.date is None or dialog.date < since_utc:
+            continue
+        msgs = []
+        async for msg in client.iter_messages(dialog.entity, limit=40):
+            if msg.date is None:
+                continue
+            if msg.date < since_utc:
+                break
+            if msg.out:
+                who = 'ME'
+            else:
+                sender = msg.sender
+                who = (getattr(sender, 'first_name', None)
+                       or getattr(sender, 'title', None) or 'Customer')
+            text = (msg.text or '[media]').strip()[:300]
+            msgs.append((msg.date.astimezone(TZ), who, text, msg.id))
+        if not msgs:
+            continue
+        msgs.reverse()
+        existing = state.get(dialog.id)
+        if existing:
+            # a live message may have arrived while seeding — keep both
+            known = {i for _, _, _, i in existing['msgs']}
+            merged = [m for m in msgs if m[3] not in known] + list(existing['msgs'])
+            existing['msgs'] = deque(merged[-40:], maxlen=40)
+        else:
+            state[dialog.id] = {
+                'name': dialog.name, 'msgs': deque(msgs, maxlen=40),
+                'analyzed_id': 0, 'nudged_id': 0,
+            }
+        seeded += 1
+    return seeded
+
+
 async def main():
     minutes = int(sys.argv[1]) if len(sys.argv) > 1 else None
     sweep = int(sys.argv[2]) if len(sys.argv) > 2 else SWEEP_SECONDS
@@ -101,6 +148,16 @@ async def main():
     else:
         end = datetime.now(TZ).replace(hour=END_HOUR, minute=END_MINUTE,
                                        second=0, microsecond=0)
+
+    now = datetime.now(TZ)
+    if minutes is not None:
+        seed_since = now - timedelta(minutes=60)
+    else:
+        seed_since = now.replace(hour=SHIFT_START_HOUR, minute=0,
+                                 second=0, microsecond=0)
+    if seed_since < now:
+        seeded = await seed_state(client, state, seed_since.astimezone(UTC))
+        print(f"seeded {seeded} chats since {seed_since:%H:%M}", flush=True)
 
     print(f"watcher started at {datetime.now(TZ)}", flush=True)
     while True:
