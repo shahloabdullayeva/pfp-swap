@@ -23,6 +23,17 @@ anthropic_key = os.environ.get('ANTHROPIC_API_KEY')
 REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-opus-5')
 
 
+def _roster(var, default):
+    return {n.strip().title() for n in
+            os.environ.get(var, default).split(',') if n.strip()}
+
+
+# People who reply in customer chats but are NOT customer-service teammates.
+# Sales sits in another department; clients get misread as staff by the model.
+SALES_PEOPLE = _roster('SALES_PEOPLE', 'Nurmuhammad')
+CLIENT_PEOPLE = _roster('CLIENT_PEOPLE', 'Doniyorbek')
+
+
 def default_window():
     # run just after midnight: previous shift = yesterday 16:00 -> midnight
     now = datetime.now(TZ)
@@ -107,6 +118,8 @@ def analyze_tasks(tg, groups):
 
     class GroupTasks(BaseModel):
         tasks: List[Task]
+        good: List[str]
+        issues: List[str]
 
     ai = anthropic.Anthropic()
     system = (
@@ -131,12 +144,26 @@ def analyze_tasks(tg, groups):
         "staff member who answered it (spelled exactly as it appears in the "
         "transcript) if another agent handled it and Charlotte did not; 'nobody' "
         "if no one addressed it. Several agents may work during Charlotte's shift "
-        "(Den, Layla, Dustin, Mason, and others) — infer who is staff from the "
+        "(Den, Layla, Dustin, Mason, Max, and others) — infer who is staff from the "
         "conversation itself: staff answer requests in a service role rather than "
-        "asking for help. A reply from any staff member means the task is handled "
+        "asking for help. KNOWN EXCEPTIONS: Nurmuhammad is a SALES agent, not "
+        "customer service — never record him as having handled a CS task; if he is "
+        "the only one who replied, set handled_by to 'Nurmuhammad' anyway so it can "
+        "be counted separately. Doniyorbek is a CUSTOMER, not staff — his messages "
+        "are customer messages, and a reply from him NEVER means a task was handled; "
+        "use 'nobody' in that case. A reply from any staff member means the task is handled "
         "by that person, NOT unanswered. The transcript covers only Charlotte's shift "
         "window — judge strictly by what is inside it. Give each task a short "
-        "label of 2-5 words. If there are no real tasks, return an empty list."
+        "label of 2-5 words. If there are no real tasks, return an empty list. "
+        "SEPARATELY, judge ONLY Charlotte's own handling in this chat (the 'ME' "
+        "messages). In 'good', list what she did well. In 'issues', list concrete "
+        "mistakes or misses of hers: a customer left waiting a long time, a promise "
+        "('checking', 'one moment') never followed up, a curt or confusing reply, a "
+        "wrong or incomplete answer, or a request she let slip that a teammate had "
+        "to pick up. Judge response gaps from the timestamps. Each entry under 15 "
+        "words and tied to something actually in the transcript. Judge NOBODY but "
+        "Charlotte. If she did not take part in this chat, return empty lists for "
+        "both. Never invent faults: if her handling was fine, 'issues' MUST be empty."
     )
 
     todo = [g for g in groups if g['received'] > 0]
@@ -145,6 +172,7 @@ def analyze_tasks(tg, groups):
     last_pct = 0
 
     results = []
+    notes = []
     errors = 0
     for done, g in enumerate(todo, start=1):
         try:
@@ -159,9 +187,13 @@ def analyze_tasks(tg, groups):
                 }],
                 output_format=GroupTasks,
             )
-            for task in response.parsed_output.tasks:
+            out = response.parsed_output
+            for task in out.tasks:
                 results.append({'group': g['name'], 'label': task.label,
                                 'handled_by': task.handled_by})
+            for kind, items in (('good', out.good), ('issue', out.issues)):
+                for text in items:
+                    notes.append({'group': g['name'], 'kind': kind, 'text': text})
         except Exception as e:
             errors += 1
             print(f"AI analysis failed for {g['name']}: {e}", file=sys.stderr)
@@ -178,7 +210,54 @@ def analyze_tasks(tg, groups):
         tg.delete_messages('me', progress)
     except Exception:
         pass
-    return results, errors
+    return results, notes, errors
+
+
+def review_performance(notes, stats):
+    """Turn per-chat observations into one short, specific shift review."""
+    import anthropic
+    from pydantic import BaseModel
+
+    class Review(BaseModel):
+        verdict: str
+        strengths: List[str]
+        improvements: List[str]
+
+    ai = anthropic.Anthropic()
+    system = (
+        "You are a customer service team lead writing an honest end-of-shift "
+        "review for Charlotte (Octane/TSS, trucking fuel cards). You are given "
+        "observations collected chat-by-chat from her shift, plus the shift "
+        "numbers. Write: verdict — two sentences on how the shift actually went; "
+        "strengths — up to 4 things she genuinely did well, each pointing at a "
+        "real pattern or chat; improvements — up to 4 concrete changes, most "
+        "important first, each saying what to do differently rather than naming a "
+        "vague quality. Ground every point in the observations; never invent a "
+        "fault or a compliment. If there is little to criticise, say so plainly "
+        "instead of padding the list. No generic praise, no coaching cliches. "
+        "Keep each bullet under 20 words."
+    )
+    good = [f"- [{n['group']}] {n['text']}" for n in notes if n['kind'] == 'good']
+    bad = [f"- [{n['group']}] {n['text']}" for n in notes if n['kind'] == 'issue']
+    content = (f"Shift numbers: {stats}\n\n"
+               f"Went well ({len(good)}):\n" + "\n".join(good[:120]) +
+               f"\n\nProblems noticed ({len(bad)}):\n" + "\n".join(bad[:120]))
+    response = ai.messages.parse(
+        model=REPORT_MODEL,
+        max_tokens=2000,
+        system=system,
+        messages=[{"role": "user", "content": content}],
+        output_format=Review,
+    )
+    r = response.parsed_output
+    lines = ['🧭 How your shift went', r.verdict]
+    if r.strengths:
+        lines.append('👍 Did well:')
+        lines += [f'   • {s}' for s in r.strengths]
+    if r.improvements:
+        lines.append('🔧 To improve:')
+        lines += [f'   • {s}' for s in r.improvements]
+    return lines
 
 
 def fit_telegram(lines):
@@ -215,14 +294,19 @@ def main():
         ]
 
         if anthropic_key:
-            tasks, errors = analyze_tasks(client, active)
+            tasks, notes, errors = analyze_tasks(client, active)
             by_me = [t for t in tasks if t['handled_by'].strip().upper() == 'ME']
+            # a "reply" from a client is not a reply — count it as unanswered
             unanswered = [t for t in tasks
-                          if t['handled_by'].strip().lower() == 'nobody']
+                          if t['handled_by'].strip().lower() == 'nobody'
+                          or norm(t['handled_by']) in CLIENT_PEOPLE]
+            outside = [t for t in tasks if norm(t['handled_by']) in SALES_PEOPLE]
             agents = {}
             for t in tasks:
                 key = norm(t['handled_by'])
                 if key == 'ME' or key.lower() == 'nobody' or not key:
+                    continue
+                if key in SALES_PEOPLE or key in CLIENT_PEOPLE:
                     continue
                 agents[key] = agents.get(key, 0) + 1
 
@@ -249,6 +333,8 @@ def main():
                 lines.append("👥 Team (active window, tasks per hour on duty):")
                 for name, n in sorted(agents.items(), key=lambda kv: -kv[1]):
                     lines.append(f"   • {name}: {n} ({pct(n)}){detail(name, n)}")
+            if outside:
+                lines.append(f"ℹ️ Handled by sales, not CS: {len(outside)}")
             lines.append(f"❌ No reply: {len(unanswered)} ({pct(len(unanswered))})")
             if unanswered:
                 lines.append("No reply:")
@@ -279,6 +365,17 @@ def main():
 
         print(report)
         client.send_message('me', report)
+
+        if anthropic_key and notes:
+            stats = (f"{len(tasks)} CS tasks, you handled {len(by_me)}, "
+                     f"{len(unanswered)} left unanswered, "
+                     f"{len(unanswered_users)} DMs unanswered")
+            try:
+                review = fit_telegram(review_performance(notes, stats))
+                print(review)
+                client.send_message('me', review)
+            except Exception as e:
+                print(f"review failed: {e}", file=sys.stderr)
 
 
 if __name__ == '__main__':
