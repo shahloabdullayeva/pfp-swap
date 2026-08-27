@@ -28,11 +28,17 @@ def default_window():
     return start, end
 
 
-def collect_groups(client, start_utc, end_utc):
+def collect_dialogs(client, start_utc, end_utc):
     groups = []
+    users = []
     for dialog in client.iter_dialogs():
-        if not dialog.is_group:
+        is_user = dialog.is_user and not dialog.is_group
+        if not dialog.is_group and not is_user:
             continue
+        if is_user:
+            ent = dialog.entity
+            if getattr(ent, 'bot', False) or getattr(ent, 'is_self', False):
+                continue
         if dialog.date is None or dialog.date < start_utc:
             continue
         received = 0
@@ -56,13 +62,14 @@ def collect_groups(client, start_utc, end_utc):
             transcript.append(f'[{ts}] {who}: {text}')
         if received or sent:
             transcript.reverse()
-            groups.append({
+            record = {
                 'name': dialog.name,
                 'received': received,
                 'sent': sent,
                 'transcript': transcript[-TRANSCRIPT_MAX_MSGS:],
-            })
-    return groups
+            }
+            (users if is_user else groups).append(record)
+    return groups, users
 
 
 def analyze_tasks(groups):
@@ -149,11 +156,11 @@ start_utc = start.astimezone(UTC)
 end_utc = end.astimezone(UTC)
 
 with TelegramClient(session, api_id, api_hash) as client:
-    groups = collect_groups(client, start_utc, end_utc)
+    groups, users = collect_dialogs(client, start_utc, end_utc)
 
     active = [g for g in groups if g['received'] > 0]
-    total_received = sum(g['received'] for g in groups)
-    total_sent = sum(g['sent'] for g in groups)
+    total_received = sum(d['received'] for d in groups + users)
+    total_sent = sum(d['sent'] for d in groups + users)
 
     lines = [
         f"📊 Shift report — {start.strftime('%a %d %b, %H:%M')}–{end.strftime('%H:%M')}",
@@ -180,6 +187,16 @@ with TelegramClient(session, api_id, api_hash) as client:
         lines.append(f"❌ No reply: {len(unanswered)}")
         for g in sorted(unanswered, key=lambda g: -g['received']):
             lines.append(f"   • {g['name']} ({g['received']} msgs)")
+
+    active_users = [u for u in users if u['received'] > 0]
+    answered_users = [u for u in active_users if u['sent'] > 0]
+    unanswered_users = [u for u in active_users if u['sent'] == 0]
+    lines.append(f"👤 Users (DMs): {len(active_users)} wrote to you — "
+                 f"✅ answered {len(answered_users)}, ❌ no reply {len(unanswered_users)}")
+    if unanswered_users:
+        lines.append("DMs without reply:")
+        for u in sorted(unanswered_users, key=lambda u: -u['received']):
+            lines.append(f"   • {u['name']} ({u['received']} msgs)")
 
     lines.append(f"💬 Messages: {total_received} received, {total_sent} sent by you")
     report = fit_telegram(lines)
