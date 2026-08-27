@@ -14,6 +14,9 @@ Online **Fri–Mon** with specific hour windows. Runs at 08:00, 12:00, 16:00, 20
 
 Schedule logic lives in `schedule.py`.
 
+**Shift report** — `shift_report.py`  
+Runs at 00:10 Thu/Fri (Tashkent), right after each shift. Scans all Telegram groups for the 16:00–00:00 window and sends a report to Saved Messages. With `ANTHROPIC_API_KEY` set in `.env`, Claude reads each active group's transcript and counts distinct customer-service tasks (card activation, money code, …) and whether each was handled by Charlotte, another team member, or nobody. Without a key it falls back to per-group message counts.
+
 ## Setup
 
 1. Get a Telegram API ID and hash at [my.telegram.org](https://my.telegram.org)
