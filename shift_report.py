@@ -202,7 +202,7 @@ with TelegramClient(session, api_id, api_hash) as client:
             agents[key] = agents.get(key, 0) + 1
 
         def pct(n):
-            return f"{n * 100 // len(tasks)}%" if tasks else "0%"
+            return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
 
         lines.append(f"📋 CS tasks: {len(tasks)}")
         lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})")
