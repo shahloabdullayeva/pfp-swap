@@ -32,7 +32,10 @@ WATCH_PROMPT = (
     "any staff, or Charlotte promised something ('checking', 'one moment', "
     "'let me see') and never followed up. If staff already handled everything, "
     "or the only pending items are billing/sales/chit-chat, it does NOT need "
-    "attention. Keep reason under 10 words."
+    "attention. Real customer groups usually carry a trucking company's name "
+    "and/or carrier ID; INTERNAL team groups — staff/office chats like "
+    "'Customer Service Team' or 'Octane UZB Office Team' with no customers — "
+    "NEVER need attention nudges. Keep reason under 10 words."
 )
 
 

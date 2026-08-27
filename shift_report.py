@@ -74,12 +74,11 @@ def collect_dialogs(client, start_utc, end_utc):
 
 def analyze_tasks(tg, groups):
     import anthropic
-    from typing import Literal
     from pydantic import BaseModel
 
     class Task(BaseModel):
         label: str
-        handled_by: Literal['me', 'other', 'nobody']
+        handled_by: str
 
     class GroupTasks(BaseModel):
         tasks: List[Task]
@@ -95,16 +94,22 @@ def analyze_tasks(tg, groups):
         "issues are Charlotte's personal responsibility within the team. "
         "Do NOT count billing-team work (incoming Zelle payments, invoices, "
         "charges, statements), sales inquiries, internal/ops chatter, chit-chat, "
-        "greetings, or bot/system notifications. Several messages about the same "
+        "greetings, or bot/system notifications. Real customer groups usually "
+        "carry a trucking company's name and/or carrier ID (LLC, INC, numbers). "
+        "INTERNAL team groups — staff/office chats like 'Customer Service Team' "
+        "or 'Octane UZB Office Team' with no customers in them — are NOT "
+        "customer chats: for those return an empty task list. "
+        "Several messages about the same "
         "request are ONE task; unrelated requests in the same chat are separate "
-        "tasks. For each task set handled_by: 'me' if Charlotte replied to or "
-        "resolved it within this transcript; 'other' if a different customer "
-        "service agent answered it and Charlotte did not; 'nobody' if no one "
-        "addressed it. Several agents may work during Charlotte's shift (Den, "
-        "Layla, Dustin, Mason, and others) — infer who is staff from the "
+        "tasks. For each task set handled_by to exactly one of: 'ME' if Charlotte "
+        "replied to or resolved it within this transcript; the FIRST NAME of the "
+        "staff member who answered it (spelled exactly as it appears in the "
+        "transcript) if another agent handled it and Charlotte did not; 'nobody' "
+        "if no one addressed it. Several agents may work during Charlotte's shift "
+        "(Den, Layla, Dustin, Mason, and others) — infer who is staff from the "
         "conversation itself: staff answer requests in a service role rather than "
         "asking for help. A reply from any staff member means the task is handled "
-        "('other'), NOT unanswered. The transcript covers only Charlotte's shift "
+        "by that person, NOT unanswered. The transcript covers only Charlotte's shift "
         "window — judge strictly by what is inside it. Give each task a short "
         "label of 2-5 words. If there are no real tasks, return an empty list."
     )
@@ -185,11 +190,27 @@ with TelegramClient(session, api_id, api_hash) as client:
 
     if anthropic_key:
         tasks, errors = analyze_tasks(client, active)
-        by_me = [t for t in tasks if t['handled_by'] == 'me']
-        by_other = [t for t in tasks if t['handled_by'] == 'other']
-        unanswered = [t for t in tasks if t['handled_by'] == 'nobody']
-        lines.append(f"📋 CS tasks: {len(tasks)} — ✅ you: {len(by_me)}, "
-                     f"👥 others: {len(by_other)}, ❌ no reply: {len(unanswered)}")
+        by_me = [t for t in tasks if t['handled_by'].strip().upper() == 'ME']
+        unanswered = [t for t in tasks
+                      if t['handled_by'].strip().lower() == 'nobody']
+        agents = {}
+        for t in tasks:
+            key = t['handled_by'].strip()
+            if key.upper() == 'ME' or key.lower() == 'nobody':
+                continue
+            key = key.title()
+            agents[key] = agents.get(key, 0) + 1
+
+        def pct(n):
+            return f"{n * 100 // len(tasks)}%" if tasks else "0%"
+
+        lines.append(f"📋 CS tasks: {len(tasks)}")
+        lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})")
+        if agents:
+            lines.append("👥 Team:")
+            for name, n in sorted(agents.items(), key=lambda kv: -kv[1]):
+                lines.append(f"   • {name}: {n} ({pct(n)})")
+        lines.append(f"❌ No reply: {len(unanswered)} ({pct(len(unanswered))})")
         if unanswered:
             lines.append("No reply:")
             for t in unanswered:
