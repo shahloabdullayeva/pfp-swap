@@ -7,7 +7,7 @@ Automatically swaps Telegram profile pictures between online and offline states 
 Two GitHub Actions workflows run on a cron schedule and swap the profile photo based on the current time in Tashkent (UTC+5).
 
 **Charlotte** — `swap_pfp.py`  
-Online **Wed–Sun, 4pm–4am**. Runs at 11:00 and 23:00 UTC.
+Online **Wed–Thu, 4pm–midnight**. Runs at 11:00 and 19:00 UTC.
 
 **Vazira** — `swap_vazira.py`  
 Online **Fri–Mon** with specific hour windows. Runs at 08:00, 12:00, 16:00, 20:00 UTC on relevant days.

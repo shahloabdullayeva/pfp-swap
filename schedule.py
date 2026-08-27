@@ -12,13 +12,7 @@ def charlotte_is_online(now=None):
     now = _now(now)
     weekday = now.weekday()
     hour = now.hour
-    if weekday == 0:
-        return hour < 4
-    if weekday == 1:
-        return False
-    if weekday == 2:
-        return hour >= 16
-    return hour < 4 or hour >= 16
+    return weekday in (2, 3) and hour >= 16
 
 
 def vazira_is_online(now=None):
