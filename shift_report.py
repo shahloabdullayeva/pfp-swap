@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import List
@@ -31,12 +32,17 @@ def default_window():
 
 
 def norm(name):
-    """Normalize a sender/agent name to its first token, title-cased."""
+    """Normalize a sender/agent name to a bare first name.
+
+    Telegram display names carry suffixes and decoration ("Nurmuhammad/TSS",
+    "Al Fahad✨"); strip those so the same person matches across chats.
+    """
     name = (name or '').strip()
     if name.upper() == 'ME':
         return 'ME'
-    parts = name.split()
-    return parts[0].title() if parts else ''
+    token = re.split(r'[\s/|,;:]+', name)[0]
+    token = re.sub(r'[^\w-]', '', token, flags=re.UNICODE)
+    return token.title()
 
 
 def collect_dialogs(client, start_utc, end_utc):
@@ -187,88 +193,93 @@ def fit_telegram(lines):
     return '\n'.join(out)
 
 
-if len(sys.argv) == 3:
-    start = datetime.fromisoformat(sys.argv[1]).replace(tzinfo=TZ)
-    end = datetime.fromisoformat(sys.argv[2]).replace(tzinfo=TZ)
-else:
-    start, end = default_window()
-start_utc = start.astimezone(UTC)
-end_utc = end.astimezone(UTC)
-
-with TelegramClient(session, api_id, api_hash) as client:
-    groups, users, activity = collect_dialogs(client, start_utc, end_utc)
-
-    active = [g for g in groups if g['received'] > 0]
-    total_received = sum(d['received'] for d in groups + users)
-    total_sent = sum(d['sent'] for d in groups + users)
-
-    lines = [
-        f"📊 Shift report — {start.strftime('%a %d %b, %H:%M')}–{end.strftime('%H:%M')}",
-        f"👥 Active groups: {len(active)}",
-    ]
-
-    if anthropic_key:
-        tasks, errors = analyze_tasks(client, active)
-        by_me = [t for t in tasks if t['handled_by'].strip().upper() == 'ME']
-        unanswered = [t for t in tasks
-                      if t['handled_by'].strip().lower() == 'nobody']
-        agents = {}
-        for t in tasks:
-            key = norm(t['handled_by'])
-            if key == 'ME' or key.lower() == 'nobody' or not key:
-                continue
-            agents[key] = agents.get(key, 0) + 1
-
-        def pct(n):
-            return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
-
-        def detail(key, n):
-            """On-duty window and tasks per hour actually worked.
-
-            The rate uses the count of distinct clock-hours the person posted in,
-            so one stray early message doesn't inflate someone's apparent shift.
-            """
-            a = activity.get(key)
-            if not a:
-                return ''
-            worked = max(len(a['hours']), 1)
-            return (f" — {a['first']:%H:%M}–{a['last']:%H:%M}, "
-                    f"{worked}h active ({n / worked:.1f}/hr)")
-
-        lines.append(f"📋 CS tasks: {len(tasks)}")
-        lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})"
-                     f"{detail('ME', len(by_me))}")
-        if agents:
-            lines.append("👥 Team (active window, tasks per hour on duty):")
-            for name, n in sorted(agents.items(), key=lambda kv: -kv[1]):
-                lines.append(f"   • {name}: {n} ({pct(n)}){detail(name, n)}")
-        lines.append(f"❌ No reply: {len(unanswered)} ({pct(len(unanswered))})")
-        if unanswered:
-            lines.append("No reply:")
-            for t in unanswered:
-                lines.append(f"   • {t['group']} — {t['label']}")
-        if errors:
-            lines.append(f"⚠️ {errors} group(s) could not be analyzed")
+def main():
+    if len(sys.argv) == 3:
+        start = datetime.fromisoformat(sys.argv[1]).replace(tzinfo=TZ)
+        end = datetime.fromisoformat(sys.argv[2]).replace(tzinfo=TZ)
     else:
-        answered = [g for g in active if g['sent'] > 0]
-        unanswered = [g for g in active if g['sent'] == 0]
-        lines.append(f"✅ You replied in: {len(answered)}")
-        lines.append(f"❌ No reply: {len(unanswered)}")
-        for g in sorted(unanswered, key=lambda g: -g['received']):
-            lines.append(f"   • {g['name']} ({g['received']} msgs)")
+        start, end = default_window()
+    start_utc = start.astimezone(UTC)
+    end_utc = end.astimezone(UTC)
 
-    active_users = [u for u in users if u['received'] > 0]
-    answered_users = [u for u in active_users if u['sent'] > 0]
-    unanswered_users = [u for u in active_users if u['sent'] == 0]
-    lines.append(f"👤 Users (DMs): {len(active_users)} wrote to you — "
-                 f"✅ answered {len(answered_users)}, ❌ no reply {len(unanswered_users)}")
-    if unanswered_users:
-        lines.append("DMs without reply:")
-        for u in sorted(unanswered_users, key=lambda u: -u['received']):
-            lines.append(f"   • {u['name']} ({u['received']} msgs)")
+    with TelegramClient(session, api_id, api_hash) as client:
+        groups, users, activity = collect_dialogs(client, start_utc, end_utc)
 
-    lines.append(f"💬 Messages: {total_received} received, {total_sent} sent by you")
-    report = fit_telegram(lines)
+        active = [g for g in groups if g['received'] > 0]
+        total_received = sum(d['received'] for d in groups + users)
+        total_sent = sum(d['sent'] for d in groups + users)
 
-    print(report)
-    client.send_message('me', report)
+        lines = [
+            f"📊 Shift report — {start.strftime('%a %d %b, %H:%M')}–{end.strftime('%H:%M')}",
+            f"👥 Active groups: {len(active)}",
+        ]
+
+        if anthropic_key:
+            tasks, errors = analyze_tasks(client, active)
+            by_me = [t for t in tasks if t['handled_by'].strip().upper() == 'ME']
+            unanswered = [t for t in tasks
+                          if t['handled_by'].strip().lower() == 'nobody']
+            agents = {}
+            for t in tasks:
+                key = norm(t['handled_by'])
+                if key == 'ME' or key.lower() == 'nobody' or not key:
+                    continue
+                agents[key] = agents.get(key, 0) + 1
+
+            def pct(n):
+                return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
+
+            def detail(key, n):
+                """On-duty window and tasks per hour actually worked.
+
+                The rate uses the count of distinct clock-hours the person posted in,
+                so one stray early message doesn't inflate someone's apparent shift.
+                """
+                a = activity.get(key)
+                if not a:
+                    return ''
+                worked = max(len(a['hours']), 1)
+                return (f" — {a['first']:%H:%M}–{a['last']:%H:%M}, "
+                        f"{worked}h active ({n / worked:.1f}/hr)")
+
+            lines.append(f"📋 CS tasks: {len(tasks)}")
+            lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})"
+                         f"{detail('ME', len(by_me))}")
+            if agents:
+                lines.append("👥 Team (active window, tasks per hour on duty):")
+                for name, n in sorted(agents.items(), key=lambda kv: -kv[1]):
+                    lines.append(f"   • {name}: {n} ({pct(n)}){detail(name, n)}")
+            lines.append(f"❌ No reply: {len(unanswered)} ({pct(len(unanswered))})")
+            if unanswered:
+                lines.append("No reply:")
+                for t in unanswered:
+                    lines.append(f"   • {t['group']} — {t['label']}")
+            if errors:
+                lines.append(f"⚠️ {errors} group(s) could not be analyzed")
+        else:
+            answered = [g for g in active if g['sent'] > 0]
+            unanswered = [g for g in active if g['sent'] == 0]
+            lines.append(f"✅ You replied in: {len(answered)}")
+            lines.append(f"❌ No reply: {len(unanswered)}")
+            for g in sorted(unanswered, key=lambda g: -g['received']):
+                lines.append(f"   • {g['name']} ({g['received']} msgs)")
+
+        active_users = [u for u in users if u['received'] > 0]
+        answered_users = [u for u in active_users if u['sent'] > 0]
+        unanswered_users = [u for u in active_users if u['sent'] == 0]
+        lines.append(f"👤 Users (DMs): {len(active_users)} wrote to you — "
+                     f"✅ answered {len(answered_users)}, ❌ no reply {len(unanswered_users)}")
+        if unanswered_users:
+            lines.append("DMs without reply:")
+            for u in sorted(unanswered_users, key=lambda u: -u['received']):
+                lines.append(f"   • {u['name']} ({u['received']} msgs)")
+
+        lines.append(f"💬 Messages: {total_received} received, {total_sent} sent by you")
+        report = fit_telegram(lines)
+
+        print(report)
+        client.send_message('me', report)
+
+
+if __name__ == '__main__':
+    main()
