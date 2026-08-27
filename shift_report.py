@@ -72,7 +72,7 @@ def collect_dialogs(client, start_utc, end_utc):
     return groups, users
 
 
-def analyze_tasks(groups):
+def analyze_tasks(tg, groups):
     import anthropic
     from typing import Literal
     from pydantic import BaseModel
@@ -84,7 +84,7 @@ def analyze_tasks(groups):
     class GroupTasks(BaseModel):
         tasks: List[Task]
 
-    client = anthropic.Anthropic()
+    ai = anthropic.Anthropic()
     system = (
         "You analyze Telegram support-group transcripts for Charlotte, a customer "
         "service agent at Octane/TSS (trucking fuel cards). Messages from 'ME' are "
@@ -109,13 +109,16 @@ def analyze_tasks(groups):
         "label of 2-5 words. If there are no real tasks, return an empty list."
     )
 
+    todo = [g for g in groups if g['received'] > 0]
+    progress = tg.send_message(
+        'me', f'⏳ Shift review in progress… 0% (0/{len(todo)} groups)')
+    last_pct = 0
+
     results = []
     errors = 0
-    for g in groups:
-        if g['received'] == 0:
-            continue
+    for done, g in enumerate(todo, start=1):
         try:
-            response = client.messages.parse(
+            response = ai.messages.parse(
                 model="claude-opus-5",
                 max_tokens=4000,
                 system=system,
@@ -132,6 +135,19 @@ def analyze_tasks(groups):
         except Exception as e:
             errors += 1
             print(f"AI analysis failed for {g['name']}: {e}", file=sys.stderr)
+        pct = done * 100 // len(todo)
+        if pct - last_pct >= 5 or done == len(todo):
+            try:
+                tg.edit_message('me', progress,
+                                f'⏳ Shift review in progress… {pct}% '
+                                f'({done}/{len(todo)} groups)')
+                last_pct = pct
+            except Exception:
+                pass
+    try:
+        tg.delete_messages('me', progress)
+    except Exception:
+        pass
     return results, errors
 
 
@@ -168,7 +184,7 @@ with TelegramClient(session, api_id, api_hash) as client:
     ]
 
     if anthropic_key:
-        tasks, errors = analyze_tasks(active)
+        tasks, errors = analyze_tasks(client, active)
         by_me = [t for t in tasks if t['handled_by'] == 'me']
         by_other = [t for t in tasks if t['handled_by'] == 'other']
         unanswered = [t for t in tasks if t['handled_by'] == 'nobody']
