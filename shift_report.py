@@ -74,9 +74,11 @@ def collect_dialogs(client, start_utc, end_utc):
             transcript.append(f"[{when:%H:%M}] {who}: {text}")
             key = norm(who)
             if key:
-                a = activity.setdefault(key, {'first': when, 'last': when})
+                a = activity.setdefault(
+                    key, {'first': when, 'last': when, 'hours': set()})
                 a['first'] = min(a['first'], when)
                 a['last'] = max(a['last'], when)
+                a['hours'].add(when.replace(minute=0, second=0, microsecond=0))
         if received or sent:
             transcript.reverse()
             record = {
@@ -221,15 +223,17 @@ with TelegramClient(session, api_id, api_hash) as client:
             return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
 
         def detail(key, n):
-            """Active window (first->last message) and tasks per hour on duty."""
+            """On-duty window and tasks per hour actually worked.
+
+            The rate uses the count of distinct clock-hours the person posted in,
+            so one stray early message doesn't inflate someone's apparent shift.
+            """
             a = activity.get(key)
             if not a:
                 return ''
-            hours = (a['last'] - a['first']).total_seconds() / 3600
-            if hours < 0.5:
-                return f" — from {a['first']:%H:%M}"
-            return (f" — {a['first']:%H:%M}–{a['last']:%H:%M}"
-                    f" ({n / hours:.1f}/hr)")
+            worked = max(len(a['hours']), 1)
+            return (f" — {a['first']:%H:%M}–{a['last']:%H:%M}, "
+                    f"{worked}h active ({n / worked:.1f}/hr)")
 
         lines.append(f"📋 CS tasks: {len(tasks)}")
         lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))})"
