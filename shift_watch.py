@@ -163,6 +163,7 @@ async def main():
         print(f"seeded {seeded} chats since {seed_since:%H:%M}", flush=True)
 
     print(f"watcher started at {datetime.now(TZ)}", flush=True)
+    pending = []   # alerts survive a failed send and go out next sweep
     while True:
         if minutes is not None:
             if asyncio.get_event_loop().time() >= deadline:
@@ -171,34 +172,37 @@ async def main():
             break
         await asyncio.sleep(sweep)
 
-        now = datetime.now(TZ)
-        alerts = []
-        for st in list(state.values()):
-            if not st['msgs']:
-                continue
-            last_time, last_who, _, last_id = st['msgs'][-1]
-            if last_id <= st['analyzed_id']:
-                continue
-            age_min = (now - last_time).total_seconds() / 60
-            wait = FOLLOWUP_WAIT_MIN if last_who == 'ME' else CUSTOMER_WAIT_MIN
-            if age_min < wait:
-                continue
-            st['analyzed_id'] = last_id
-            try:
-                verdict = await asyncio.to_thread(
-                    ai_check, st['name'], list(st['msgs']))
-            except Exception as e:
-                print(f"AI check failed for {st['name']}: {e}",
-                      file=sys.stderr, flush=True)
-                continue
-            if verdict.needs_attention and last_id > st['nudged_id']:
-                st['nudged_id'] = last_id
-                alerts.append((st['name'], verdict.reason))
-        if alerts:
-            text = '👀 Needs attention:\n' + '\n'.join(
-                f'• {name} — {reason}' for name, reason in alerts)
-            await client.send_message('me', text[:4000])
-            print(f"nudged: {len(alerts)} chat(s)", flush=True)
+        try:
+            now = datetime.now(TZ)
+            for st in list(state.values()):
+                if not st['msgs']:
+                    continue
+                last_time, last_who, _, last_id = st['msgs'][-1]
+                if last_id <= st['analyzed_id']:
+                    continue
+                age_min = (now - last_time).total_seconds() / 60
+                wait = FOLLOWUP_WAIT_MIN if last_who == 'ME' else CUSTOMER_WAIT_MIN
+                if age_min < wait:
+                    continue
+                try:
+                    verdict = await asyncio.to_thread(
+                        ai_check, st['name'], list(st['msgs']))
+                except Exception as e:
+                    print(f"AI check failed for {st['name']}: {e}",
+                          file=sys.stderr, flush=True)
+                    continue
+                st['analyzed_id'] = last_id
+                if verdict.needs_attention and last_id > st['nudged_id']:
+                    st['nudged_id'] = last_id
+                    pending.append((st['name'], verdict.reason))
+            if pending:
+                text = '👀 Needs attention:\n' + '\n'.join(
+                    f'• {name} — {reason}' for name, reason in pending)
+                await client.send_message('me', text[:4000])
+                print(f"nudged: {len(pending)} chat(s)", flush=True)
+                pending.clear()
+        except Exception as e:
+            print(f"sweep failed: {e}", file=sys.stderr, flush=True)
 
     await client.disconnect()
     print(f"watcher stopped at {datetime.now(TZ)}", flush=True)
