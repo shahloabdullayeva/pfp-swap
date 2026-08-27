@@ -136,7 +136,7 @@ def analyze_tasks(tg, groups):
             errors += 1
             print(f"AI analysis failed for {g['name']}: {e}", file=sys.stderr)
         pct = done * 100 // len(todo)
-        if pct - last_pct >= 5 or done == len(todo):
+        if pct != last_pct or done == len(todo):
             try:
                 tg.edit_message('me', progress,
                                 f'⏳ Shift review in progress… {pct}% '
