@@ -15,10 +15,14 @@ Online **Fri–Mon** with specific hour windows. Runs at 08:00, 12:00, 16:00, 20
 Schedule logic lives in `schedule.py`.
 
 **Shift report** — `shift_report.py`  
-Runs at 00:10 Thu/Fri (Tashkent), right after each shift. Scans all Telegram groups for the 16:00–00:00 window and sends a report to Saved Messages. With `ANTHROPIC_API_KEY` set in `.env`, Claude reads each active group's transcript and counts distinct customer-service tasks (card activation, money code, …) and whether each was handled by Charlotte, another team member, or nobody. Without a key it falls back to per-group message counts.
+Runs at 00:10 Thu/Fri (Tashkent), right after each shift. Scans all Telegram groups for the 16:00–00:00 window and sends a report to Saved Messages. With `ANTHROPIC_API_KEY` set in `.env`, Claude reads each active group's transcript and counts distinct customer-service tasks (card activation, money code, …) and whether each was handled by Charlotte, another team member, or nobody. Agents who join partway through the shift are also credited fairly: each person's on-duty window and the number of distinct hours they posted in are derived from the messages, and their rate is tasks per hour actually worked. Without a key it falls back to per-group message counts.
 
 **Live shift watcher** — `shift_watch.py`  
 Runs 16:05–23:55 (Tashkent) on shift days. Listens to all groups and DMs; every 5 minutes Claude checks chats where a customer has waited 15+ minutes with no staff reply, or where Charlotte promised something ("checking…") and hasn't followed up in 20+ minutes — and sends a "👀 Needs attention" nudge to Saved Messages. Starts at 16:05 and exits at 23:55 so it never shares the Telegram session with the pfp-swap/report cron jobs. On startup it seeds its state with messages sent since 16:00, so requests already pending at the start of the shift are covered too.
+
+### Models
+
+The report uses `claude-opus-5` and the watcher `claude-sonnet-5`; override with `REPORT_MODEL` / `WATCH_MODEL` in `.env`. The watcher makes many small yes/no calls, so it runs on the cheaper model — but not lower: on the watcher's test cases Haiku 4.5 missed an unanswered customer, which is the one thing it must never miss.
 
 ## Setup
 
