@@ -108,6 +108,68 @@ def collect_dialogs(client, start_utc, end_utc):
     return groups, users, activity
 
 
+TASK_PROMPT = (
+    "You analyze Telegram support-group transcripts for Charlotte, a customer "
+    "service agent at Octane/TSS (trucking fuel cards). Messages from 'ME' are "
+    "Charlotte's own; everyone else appears under their name. Identify each "
+    "DISTINCT customer request in the transcript that is CUSTOMER SERVICE work: "
+    "card issues (activation, money codes, lock/unlock, replacement, limits, "
+    "PIN), mobile app problems, and discount issues. Mobile app and discount "
+    "issues are Charlotte's personal responsibility within the team. "
+    "Do NOT count billing-team work (incoming Zelle payments, invoices, "
+    "charges, statements), sales inquiries, internal/ops chatter, chit-chat, "
+    "greetings, or bot/system notifications. Real customer groups usually "
+    "carry a trucking company's name and/or carrier ID (LLC, INC, numbers). "
+    "INTERNAL team groups — staff/office chats like 'Customer Service Team' "
+    "or 'Octane UZB Office Team' with no customers in them — are NOT "
+    "customer chats: for those return an empty task list. "
+    "Several messages about the same "
+    "request are ONE task; unrelated requests in the same chat are separate "
+    "tasks. For each task set handled_by to exactly one of: 'ME' if Charlotte "
+    "replied to or resolved it within this transcript; the FIRST NAME of the "
+    "staff member who answered it (spelled exactly as it appears in the "
+    "transcript) if another agent handled it and Charlotte did not; 'nobody' "
+    "if no one addressed it. Several agents may work during Charlotte's shift "
+    "(Den, Layla, Dustin, Mason, Max, and others) — infer who is staff from the "
+    "conversation itself: staff answer requests in a service role rather than "
+    "asking for help. KNOWN EXCEPTIONS: Nurmuhammad is a SALES agent, not "
+    "customer service — never record him as having handled a CS task; if he is "
+    "the only one who replied, set handled_by to 'Nurmuhammad' anyway so it can "
+    "be counted separately. Doniyorbek is a CUSTOMER, not staff — his messages "
+    "are customer messages, and a reply from him NEVER means a task was handled; "
+    "use 'nobody' in that case. A reply from any staff member means the task is handled "
+    "by that person, NOT unanswered. The transcript covers only Charlotte's shift "
+    "window — judge strictly by what is inside it. Give each task a short "
+    "label of 2-5 words. If there are no real tasks, return an empty list. "
+    "SEPARATELY, judge ONLY Charlotte's own handling in this chat (the 'ME' "
+    "messages). In 'good', list what she did well. In 'issues', list concrete "
+    "mistakes or misses of hers: a customer left waiting a long time with "
+    "nobody helping, a curt or confusing reply, or a wrong or incomplete "
+    "answer. Judge response gaps from the timestamps. "
+    "A TEAMMATE TAKING OVER IS NOT A MISS: agents here share chats freely, so "
+    "if Charlotte greeted a chat, opened it, or said she would check and "
+    "ANOTHER agent then answered or resolved it, the customer was served and "
+    "that is FINE. Never list that as a dropped chat, an unfinished loop, a "
+    "broken promise, or work pushed onto a colleague. Only call a promise "
+    "unkept when NO staff member answered the customer at all. "
+    "ROUTING IS NOT A BRUSH-OFF: discount questions are worked in the "
+    "dedicated discount-issues group, so sending a discount case there — like "
+    "escalating pricing to sales, billing to accounting — is correct "
+    "procedure, not a curt reply. Routing does not change attribution "
+    "though: handled_by stays whoever actually answered the customer. "
+    "A SCREENSHOT IS OFTEN "
+    "THE ANSWER ITSELF: agents here routinely prove a card is active, a "
+    "price is applied or a code was issued by sending an image that shows "
+    "it instead of writing it out in words. Do not call that an unfinished "
+    "loop or a missing outcome. Only flag a screenshot when the customer "
+    "still had to ask what it meant, or when nothing in it addresses what "
+    "they asked. Each entry under 15 "
+    "words and tied to something actually in the transcript. Judge NOBODY but "
+    "Charlotte. If she did not take part in this chat, return empty lists for "
+    "both. Never invent faults: if her handling was fine, 'issues' MUST be empty."
+)
+
+
 def analyze_tasks(tg, groups):
     import anthropic
     from pydantic import BaseModel
@@ -122,55 +184,6 @@ def analyze_tasks(tg, groups):
         issues: List[str]
 
     ai = anthropic.Anthropic()
-    system = (
-        "You analyze Telegram support-group transcripts for Charlotte, a customer "
-        "service agent at Octane/TSS (trucking fuel cards). Messages from 'ME' are "
-        "Charlotte's own; everyone else appears under their name. Identify each "
-        "DISTINCT customer request in the transcript that is CUSTOMER SERVICE work: "
-        "card issues (activation, money codes, lock/unlock, replacement, limits, "
-        "PIN), mobile app problems, and discount issues. Mobile app and discount "
-        "issues are Charlotte's personal responsibility within the team. "
-        "Do NOT count billing-team work (incoming Zelle payments, invoices, "
-        "charges, statements), sales inquiries, internal/ops chatter, chit-chat, "
-        "greetings, or bot/system notifications. Real customer groups usually "
-        "carry a trucking company's name and/or carrier ID (LLC, INC, numbers). "
-        "INTERNAL team groups — staff/office chats like 'Customer Service Team' "
-        "or 'Octane UZB Office Team' with no customers in them — are NOT "
-        "customer chats: for those return an empty task list. "
-        "Several messages about the same "
-        "request are ONE task; unrelated requests in the same chat are separate "
-        "tasks. For each task set handled_by to exactly one of: 'ME' if Charlotte "
-        "replied to or resolved it within this transcript; the FIRST NAME of the "
-        "staff member who answered it (spelled exactly as it appears in the "
-        "transcript) if another agent handled it and Charlotte did not; 'nobody' "
-        "if no one addressed it. Several agents may work during Charlotte's shift "
-        "(Den, Layla, Dustin, Mason, Max, and others) — infer who is staff from the "
-        "conversation itself: staff answer requests in a service role rather than "
-        "asking for help. KNOWN EXCEPTIONS: Nurmuhammad is a SALES agent, not "
-        "customer service — never record him as having handled a CS task; if he is "
-        "the only one who replied, set handled_by to 'Nurmuhammad' anyway so it can "
-        "be counted separately. Doniyorbek is a CUSTOMER, not staff — his messages "
-        "are customer messages, and a reply from him NEVER means a task was handled; "
-        "use 'nobody' in that case. A reply from any staff member means the task is handled "
-        "by that person, NOT unanswered. The transcript covers only Charlotte's shift "
-        "window — judge strictly by what is inside it. Give each task a short "
-        "label of 2-5 words. If there are no real tasks, return an empty list. "
-        "SEPARATELY, judge ONLY Charlotte's own handling in this chat (the 'ME' "
-        "messages). In 'good', list what she did well. In 'issues', list concrete "
-        "mistakes or misses of hers: a customer left waiting a long time, a promise "
-        "('checking', 'one moment') never followed up, a curt or confusing reply, a "
-        "wrong or incomplete answer, or a request she let slip that a teammate had "
-        "to pick up. Judge response gaps from the timestamps. A SCREENSHOT IS OFTEN "
-        "THE ANSWER ITSELF: agents here routinely prove a card is active, a "
-        "price is applied or a code was issued by sending an image that shows "
-        "it instead of writing it out in words. Do not call that an unfinished "
-        "loop or a missing outcome. Only flag a screenshot when the customer "
-        "still had to ask what it meant, or when nothing in it addresses what "
-        "they asked. Each entry under 15 "
-        "words and tied to something actually in the transcript. Judge NOBODY but "
-        "Charlotte. If she did not take part in this chat, return empty lists for "
-        "both. Never invent faults: if her handling was fine, 'issues' MUST be empty."
-    )
 
     todo = [g for g in groups if g['received'] > 0]
     progress = tg.send_message(
@@ -185,7 +198,7 @@ def analyze_tasks(tg, groups):
             response = ai.messages.parse(
                 model=REPORT_MODEL,
                 max_tokens=4000,
-                system=system,
+                system=TASK_PROMPT,
                 messages=[{
                     "role": "user",
                     "content": f"Group: {g['name']}\n\nTranscript (times are Tashkent):\n"
@@ -241,6 +254,11 @@ def review_performance(notes, stats):
         "vague quality. Ground every point in the observations; never invent a "
         "fault or a compliment. If there is little to criticise, say so plainly "
         "instead of padding the list. No generic praise, no coaching cliches. "
+        "This team shares chats: a conversation Charlotte started and a teammate "
+        "finished is the team working, not a miss — never build an improvement "
+        "point out of 'finish what you greet' or 'you left it to someone else'. "
+        "Handing a discount case to the discount-issues group, pricing to sales "
+        "or billing to accounting is correct routing, not a curt reply. "
         "Keep each bullet under 20 words."
     )
     good = [f"- [{n['group']}] {n['text']}" for n in notes if n['kind'] == 'good']
