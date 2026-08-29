@@ -1,15 +1,15 @@
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 from zoneinfo import ZoneInfo
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
+from schedule import shift_just_ended
 
 TZ = ZoneInfo('Asia/Tashkent')
 UTC = ZoneInfo('UTC')
-SHIFT_HOURS = 8
 PER_GROUP_LIMIT = 3000
 TRANSCRIPT_MAX_MSGS = 300
 TELEGRAM_MSG_LIMIT = 4000
@@ -35,11 +35,12 @@ CLIENT_PEOPLE = _roster('CLIENT_PEOPLE', 'Doniyorbek')
 
 
 def default_window():
-    # run just after midnight: previous shift = yesterday 16:00 -> midnight
-    now = datetime.now(TZ)
-    end = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    start = end - timedelta(hours=SHIFT_HOURS)
-    return start, end
+    """The shift that just finished, or None if none did.
+
+    Cron fires this at every hour a shift can end (00:10 after an 8-hour day,
+    04:10 after a 12-hour one); on the wrong one there is nothing to report.
+    """
+    return shift_just_ended()
 
 
 def norm(name):
@@ -301,7 +302,12 @@ def main():
         start = datetime.fromisoformat(sys.argv[1]).replace(tzinfo=TZ)
         end = datetime.fromisoformat(sys.argv[2]).replace(tzinfo=TZ)
     else:
-        start, end = default_window()
+        window = default_window()
+        if window is None:
+            print(f"no shift ended near {datetime.now(TZ):%a %d %b %H:%M}"
+                  " — nothing to report")
+            return
+        start, end = window
     start_utc = start.astimezone(UTC)
     end_utc = end.astimezone(UTC)
 

@@ -6,3 +6,4 @@ __pycache__/
 session.txt
 cron.log
 watch.log
+.pfp_state

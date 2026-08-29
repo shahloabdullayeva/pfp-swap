@@ -6,17 +6,17 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from schedule import current_shift
 
 TZ = ZoneInfo('Asia/Tashkent')
 UTC = ZoneInfo('UTC')
-SHIFT_START_HOUR = 16
 CUSTOMER_WAIT_MIN = 15   # customer msg with no staff reply for this long -> check
 FOLLOWUP_WAIT_MIN = 20   # Charlotte's "checking..." with no follow-up -> check
 SWEEP_SECONDS = 300
 # Small yes/no judgements. Sonnet is ~1.7x cheaper than Opus and scores the same
 # on the watcher test cases; Haiku missed unanswered customers, so don't go lower.
 WATCH_MODEL = os.environ.get('WATCH_MODEL', 'claude-sonnet-5')
-END_HOUR, END_MINUTE = 23, 55  # exit before midnight cron jobs reconnect
+END_MARGIN_MIN = 5   # stop just before the end-of-shift cron jobs reconnect
 
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
@@ -132,6 +132,13 @@ async def main():
     minutes = int(sys.argv[1]) if len(sys.argv) > 1 else None
     sweep = int(sys.argv[2]) if len(sys.argv) > 2 else SWEEP_SECONDS
 
+    # Cron starts this every day; on a day off there is nothing to watch.
+    shift = None if minutes is not None else current_shift()
+    if minutes is None and shift is None:
+        print(f"no shift at {datetime.now(TZ):%a %d %b %H:%M} — not watching",
+              flush=True)
+        return
+
     client = TelegramClient(session, api_id, api_hash)
     await client.start()
     me = await client.get_me()
@@ -166,21 +173,19 @@ async def main():
     if minutes is not None:
         end = None
         deadline = asyncio.get_event_loop().time() + minutes * 60
+        seed_since = datetime.now(TZ) - timedelta(minutes=60)
     else:
-        end = datetime.now(TZ).replace(hour=END_HOUR, minute=END_MINUTE,
-                                       second=0, microsecond=0)
+        # follow the shift itself, so a 12-hour day runs past midnight to 03:55
+        seed_since, shift_end = shift
+        end = shift_end - timedelta(minutes=END_MARGIN_MIN)
 
     now = datetime.now(TZ)
-    if minutes is not None:
-        seed_since = now - timedelta(minutes=60)
-    else:
-        seed_since = now.replace(hour=SHIFT_START_HOUR, minute=0,
-                                 second=0, microsecond=0)
     if seed_since < now:
         seeded = await seed_state(client, state, seed_since.astimezone(UTC))
         print(f"seeded {seeded} chats since {seed_since:%H:%M}", flush=True)
 
-    print(f"watcher started at {datetime.now(TZ)}", flush=True)
+    until = f" until {end:%a %d %b %H:%M}" if end else ""
+    print(f"watcher started at {datetime.now(TZ)}{until}", flush=True)
     pending = []   # alerts survive a failed send and go out next sweep
     while True:
         if minutes is not None:
