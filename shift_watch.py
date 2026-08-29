@@ -10,13 +10,11 @@ from schedule import current_shift
 
 TZ = ZoneInfo('Asia/Tashkent')
 UTC = ZoneInfo('UTC')
-CUSTOMER_WAIT_MIN = 15   # customer msg with no staff reply for this long -> check
-FOLLOWUP_WAIT_MIN = 20   # Charlotte's "checking..." with no follow-up -> check
+CUSTOMER_WAIT_MIN = 15
+FOLLOWUP_WAIT_MIN = 20
 SWEEP_SECONDS = 300
-# Small yes/no judgements. Sonnet is ~1.7x cheaper than Opus and scores the same
-# on the watcher test cases; Haiku missed unanswered customers, so don't go lower.
 WATCH_MODEL = os.environ.get('WATCH_MODEL', 'claude-sonnet-5')
-END_MARGIN_MIN = 5   # stop just before the end-of-shift cron jobs reconnect
+END_MARGIN_MIN = 5
 
 api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
@@ -84,7 +82,6 @@ def ai_check(name, msgs):
 
 
 async def seed_state(client, state, since_utc):
-    """Load messages already sent this shift, so a 16:05 start still sees 16:00."""
     seeded = 0
     async for dialog in client.iter_dialogs():
         is_user = dialog.is_user and not dialog.is_group
@@ -115,7 +112,6 @@ async def seed_state(client, state, since_utc):
         msgs.reverse()
         existing = state.get(dialog.id)
         if existing:
-            # a live message may have arrived while seeding — keep both
             known = {i for _, _, _, i in existing['msgs']}
             merged = [m for m in msgs if m[3] not in known] + list(existing['msgs'])
             existing['msgs'] = deque(merged[-40:], maxlen=40)
@@ -132,7 +128,6 @@ async def main():
     minutes = int(sys.argv[1]) if len(sys.argv) > 1 else None
     sweep = int(sys.argv[2]) if len(sys.argv) > 2 else SWEEP_SECONDS
 
-    # Cron starts this every day; on a day off there is nothing to watch.
     shift = None if minutes is not None else current_shift()
     if minutes is None and shift is None:
         print(f"no shift at {datetime.now(TZ):%a %d %b %H:%M} — not watching",
@@ -175,7 +170,6 @@ async def main():
         deadline = asyncio.get_event_loop().time() + minutes * 60
         seed_since = datetime.now(TZ) - timedelta(minutes=60)
     else:
-        # follow the shift itself, so a 12-hour day runs past midnight to 03:55
         seed_since, shift_end = shift
         end = shift_end - timedelta(minutes=END_MARGIN_MIN)
 
@@ -186,7 +180,7 @@ async def main():
 
     until = f" until {end:%a %d %b %H:%M}" if end else ""
     print(f"watcher started at {datetime.now(TZ)}{until}", flush=True)
-    pending = []   # alerts survive a failed send and go out next sweep
+    pending = []
     while True:
         if minutes is not None:
             if asyncio.get_event_loop().time() >= deadline:

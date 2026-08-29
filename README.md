@@ -36,6 +36,11 @@ it last set in `.pfp_state`, so repeat firings never re-swap the photo or send a
 duplicate note to Saved Messages. Passing `online`/`offline` explicitly still
 forces a swap, and `shift_report.py <start> <end>` still reports any window.
 
+A hand-run swap also wins until the rota next changes its mind: set yourself
+offline at 21:00 because you went home ill and the 00:01 firing leaves the photo
+alone, because the rota wanted the same thing it wanted when you overrode it.
+The next boundary that genuinely differs takes over again.
+
 **Shift report** — `shift_report.py`  
 Runs right after each shift — 00:10 after an 8-hour day, 04:10 after a 12-hour one. Scans all Telegram groups for the shift's window and sends a report to Saved Messages. With `ANTHROPIC_API_KEY` set in `.env`, Claude reads each active group's transcript and counts distinct customer-service tasks (card activation, money code, …) and whether each was handled by Charlotte, another team member, or nobody. Agents who join partway through the shift are also credited fairly: each person's on-duty window and the number of distinct hours they posted in are derived from the messages, and their rate is tasks per hour actually worked. Without a key it falls back to per-group message counts.
 

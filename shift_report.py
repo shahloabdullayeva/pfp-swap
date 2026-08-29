@@ -19,7 +19,6 @@ api_hash = os.environ['API_HASH']
 session_string = os.environ.get('SESSION_STRING')
 session = StringSession(session_string) if session_string else 'charlotte_session'
 anthropic_key = os.environ.get('ANTHROPIC_API_KEY')
-# Nightly deep read of every group — kept on the strongest model by default.
 REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-opus-5')
 
 
@@ -28,27 +27,15 @@ def _roster(var, default):
             os.environ.get(var, default).split(',') if n.strip()}
 
 
-# People who reply in customer chats but are NOT customer-service teammates.
-# Sales sits in another department; clients get misread as staff by the model.
 SALES_PEOPLE = _roster('SALES_PEOPLE', 'Nurmuhammad')
 CLIENT_PEOPLE = _roster('CLIENT_PEOPLE', 'Doniyorbek')
 
 
 def default_window():
-    """The shift that just finished, or None if none did.
-
-    Cron fires this at every hour a shift can end (00:10 after an 8-hour day,
-    04:10 after a 12-hour one); on the wrong one there is nothing to report.
-    """
     return shift_just_ended()
 
 
 def norm(name):
-    """Normalize a sender/agent name to a bare first name.
-
-    Telegram display names carry suffixes and decoration ("Nurmuhammad/TSS",
-    "Al Fahad✨"); strip those so the same person matches across chats.
-    """
     name = (name or '').strip()
     if name.upper() == 'ME':
         return 'ME'
@@ -234,7 +221,6 @@ def analyze_tasks(tg, groups):
 
 
 def review_performance(notes, stats):
-    """Turn per-chat observations into one short, specific shift review."""
     import anthropic
     from pydantic import BaseModel
 
@@ -326,7 +312,6 @@ def main():
         if anthropic_key:
             tasks, notes, errors = analyze_tasks(client, active)
             by_me = [t for t in tasks if t['handled_by'].strip().upper() == 'ME']
-            # a "reply" from a client is not a reply — count it as unanswered
             unanswered = [t for t in tasks
                           if t['handled_by'].strip().lower() == 'nobody'
                           or norm(t['handled_by']) in CLIENT_PEOPLE]
@@ -344,11 +329,6 @@ def main():
                 return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
 
             def detail(key, n):
-                """On-duty window and tasks per hour actually worked.
-
-                The rate uses the count of distinct clock-hours the person posted in,
-                so one stray early message doesn't inflate someone's apparent shift.
-                """
                 a = activity.get(key)
                 if not a:
                     return ''

@@ -9,9 +9,6 @@ api_id = int(os.environ['API_ID'])
 api_hash = os.environ['API_HASH']
 session_string = os.environ.get('SESSION_STRING')
 HERE = os.path.dirname(os.path.abspath(__file__))
-# What the last run left on the account, whether a person or cron set it, and
-# what the rota wanted at the time. Cron fires 'auto' at every hour a shift could
-# start or end, so most runs are no-ops and must not swap or notify.
 STATE_FILE = os.path.join(HERE, '.pfp_state')
 
 
@@ -71,12 +68,10 @@ def main():
 
     if not manual:
         last_mode, last_manual, last_want = read_state()
-        # A hand-run swap wins until the rota next changes its mind: go home ill
-        # at 21:00 and set offline, and the 00:01 firing leaves it alone.
         if last_manual and last_want == want:
             return
         if last_mode == mode:
-            write_state(mode, False, want)   # let a lapsed manual flag go
+            write_state(mode, False, want)
             return
 
     swap(mode)
