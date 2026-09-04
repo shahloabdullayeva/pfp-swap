@@ -5,10 +5,7 @@ TZ = ZoneInfo('Asia/Tashkent')
 
 BASE = {2: (16, 8), 3: (16, 8), 4: (16, 8), 5: (16, 8), 6: (16, 8)}
 
-OVERRIDES = {
-    date(2026, 8, 29): (16, 12),
-    date(2026, 8, 30): (21, 12),
-}
+OVERRIDES = {}
 
 SLACK_MINUTES = 30
 

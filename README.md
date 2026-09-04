@@ -7,8 +7,7 @@ Automatically swaps Telegram profile pictures between online and offline states 
 Two GitHub Actions workflows run on a cron schedule and swap the profile photo based on the current time in Tashkent (UTC+5).
 
 **Charlotte** — `swap_pfp.py`  
-Online **Wed–Sun, 16:00–00:00** Tashkent (Mon and Tue off), with dated
-exceptions — Sat 29 and Sun 30 Aug 2026 are 12-hour days, 16:00–04:00.
+Online **Wed–Sun, 16:00–00:00** Tashkent (Mon and Tue off).
 
 **Vazira** — `swap_vazira.py`  
 Online **Fri–Mon** with specific hour windows. Runs at 08:00, 12:00, 16:00, 20:00 UTC on relevant days.
@@ -26,9 +25,13 @@ Cron deliberately knows no days. It fires every *candidate* boundary, every day:
 | Tashkent | job |
 |---|---|
 | 16:01 | `swap_pfp.py auto` |
-| 16:05 | `shift_watch.py` |
-| 00:01, 04:01 | `swap_pfp.py auto` |
-| 00:10, 04:10 | `shift_report.py` |
+| 00:01 | `swap_pfp.py auto` |
+| 00:10 | `shift_report.py` |
+
+Cron carries a line for every boundary the rota can currently reach. A shift
+shape that reaches a new boundary — a 12-hour night ending at 04:00, say —
+needs its cron line added alongside the `schedule.py` edit; the 04:00 and 09:00
+lines from the August 12-hour days were removed once those days passed.
 
 Each script asks `schedule.py` whether it should act and exits silently — before
 connecting to Telegram — when it shouldn't. `swap_pfp.py auto` also records what
@@ -66,12 +69,11 @@ Transcripts are labelled with the roster's own name for each person before Claud
 
 `SALES_PEOPLE` / `CLIENT_PEOPLE` (comma-separated) in `.env` still add names on top of the roster for anyone whose ID has not been collected yet.
 
-**Live shift watcher** — `shift_watch.py`  
-Runs from 16:05 until 5 minutes before the shift ends (23:55 on an 8-hour day, 03:55 the next morning on a 12-hour one), on shift days only. Listens to all groups and DMs; every 5 minutes Claude checks chats where a customer has waited 15+ minutes with no staff reply, or where Charlotte promised something ("checking…") and hasn't followed up in 20+ minutes — and sends a "👀 Needs attention" nudge to Saved Messages. It starts 5 minutes after the shift begins and stops 5 minutes before it ends, so it never shares the Telegram session with the pfp-swap/report cron jobs. On startup it seeds its state with messages sent since the shift start, so requests already pending at the start of the shift are covered too.
-
 ### Models
 
-The report uses `claude-opus-5` and the watcher `claude-sonnet-5`; override with `REPORT_MODEL` / `WATCH_MODEL` in `.env`. The watcher makes many small yes/no calls, so it runs on the cheaper model — but not lower: on the watcher's test cases Haiku 4.5 missed an unanswered customer, which is the one thing it must never miss.
+The report uses `claude-opus-5`; override with `REPORT_MODEL` in `.env`. `ANALYSIS_WORKERS` (default 5) sets how many chats are analysed at once — the day-long window roughly doubled the number of calls, and running them one at a time made the report take too long.
+
+A live shift watcher used to run alongside these, nudging about chats that looked unanswered. It was retired in August 2026 for crying wolf: it nudged when the customer had gone quiet after a reply, it did not understand that a screenshot is often the answer itself, and it could not see reactions, so a chat closed with an emoji looked ignored.
 
 ## Setup
 
