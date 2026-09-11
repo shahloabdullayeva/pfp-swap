@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 from zoneinfo import ZoneInfo
 from telethon.sync import TelegramClient
@@ -15,7 +15,6 @@ UTC = ZoneInfo('UTC')
 PER_GROUP_LIMIT = 3000
 TRANSCRIPT_MAX_MSGS = 500
 TELEGRAM_MSG_LIMIT = 4000
-DAY_HOURS = 24
 ANALYSIS_WORKERS = int(os.environ.get('ANALYSIS_WORKERS', '5'))
 KNOWN_NAMES = {name.lower(): name for name in
                list(STAFF.values()) + list(CLIENT_NAMES)}
@@ -61,10 +60,9 @@ def canonical(msg):
             or getattr(sender, 'title', None) or 'Customer')
 
 
-def collect_dialogs(client, day_start, day_end, shift_start, shift_end):
+def collect_dialogs(client, start, end):
     chats = []
     activity = {}
-    shift_activity = {}
     for dialog in client.iter_dialogs():
         is_user = dialog.is_user and not dialog.is_group
         if not dialog.is_group and not is_user:
@@ -75,42 +73,33 @@ def collect_dialogs(client, day_start, day_end, shift_start, shift_end):
             if getattr(ent, 'bot', False) or getattr(ent, 'is_self', False):
                 continue
             peer_id = getattr(ent, 'id', None)
-        if dialog.date is None or dialog.date < day_start:
+        if dialog.date is None or dialog.date < start:
             continue
         received = 0
         sent = 0
-        shift_received = 0
-        shift_sent = 0
         transcript = []
-        for msg in client.iter_messages(dialog.entity, offset_date=day_end,
+        for msg in client.iter_messages(dialog.entity, offset_date=end,
                                         limit=PER_GROUP_LIMIT):
             if msg.date is None:
                 continue
-            if msg.date < day_start:
+            if msg.date < start:
                 break
             is_call = isinstance(getattr(msg, 'action', None),
                                  MessageActionPhoneCall)
-            in_shift = shift_start <= msg.date < shift_end
             if not is_call:
                 if msg.out:
                     sent += 1
-                    if in_shift:
-                        shift_sent += 1
                 else:
                     received += 1
-                    if in_shift:
-                        shift_received += 1
             who = canonical(msg)
             text = '[call]' if is_call else (msg.text or '[media]').strip()[:300]
             when = msg.date.astimezone(TZ)
             transcript.append(f"[{when:%H:%M}] {who}: {text}")
-            books = [activity] + ([shift_activity] if in_shift else [])
-            for book in books:
-                a = book.setdefault(
-                    who, {'first': when, 'last': when, 'hours': set()})
-                a['first'] = min(a['first'], when)
-                a['last'] = max(a['last'], when)
-                a['hours'].add(when.replace(minute=0, second=0, microsecond=0))
+            a = activity.setdefault(
+                who, {'first': when, 'last': when, 'hours': set()})
+            a['first'] = min(a['first'], when)
+            a['last'] = max(a['last'], when)
+            a['hours'].add(when.replace(minute=0, second=0, microsecond=0))
         if received or sent:
             transcript.reverse()
             chats.append({
@@ -119,24 +108,9 @@ def collect_dialogs(client, day_start, day_end, shift_start, shift_end):
                 'internal': is_user and peer_id in STAFF,
                 'received': received,
                 'sent': sent,
-                'shift_received': shift_received,
-                'shift_sent': shift_sent,
                 'transcript': transcript[-TRANSCRIPT_MAX_MSGS:],
             })
-    return chats, activity, shift_activity
-
-
-def parse_at(value, day_start, day_end):
-    found = re.search(r'(\d{1,2}):(\d{2})', value or '')
-    if not found:
-        return None
-    hour, minute = int(found.group(1)), int(found.group(2))
-    if hour > 23 or minute > 59:
-        return None
-    when = day_start.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if when < day_start:
-        when += timedelta(days=1)
-    return when if day_start <= when < day_end else None
+    return chats, activity
 
 
 def handler(name):
@@ -194,9 +168,10 @@ TASK_PROMPT = (
     "as a member of the CS team. Doniyorbek is a CUSTOMER, not staff — his messages "
     "are customer messages, and a reply from him NEVER means a task was handled; "
     "use 'nobody' in that case. A reply from any staff member means the task is handled "
-    "by that person, NOT unanswered. The transcript covers a full 24-hour day: "
-    "Charlotte's own shift plus the hours her teammates work before and after "
-    "it. Judge strictly by what is inside it. Give each task a short "
+    "by that person, NOT unanswered. The transcript covers Charlotte's own shift "
+    "and nothing outside it, so a request raised before she came on or after she "
+    "logged off is not in it. Judge strictly by what is inside it. "
+    "Give each task a short "
     "label of 2-5 words, and set 'at' to the HH:MM timestamp of the first "
     "message of that task, copied from the transcript. "
     "If there are no real tasks, return an empty list. "
@@ -384,41 +359,6 @@ def span(book, key, n):
             f"{worked}h active ({n / worked:.1f}/hr)"), worked
 
 
-def leaderboard(tasks, activity, day_start, day_end):
-    counts = {}
-    off = {}
-    for t in tasks:
-        key = t['who']
-        if key == 'ME':
-            counts['You'] = counts.get('You', 0) + 1
-        elif key.lower() in TEAM_LOWER:
-            counts[key] = counts.get(key, 0) + 1
-        elif (key != 'nobody' and key.lower() not in SALES_LOWER
-              and key.lower() not in ACCOUNTING_LOWER
-              and key.lower() not in CLIENT_LOWER):
-            off[key] = off.get(key, 0) + 1
-    rows = []
-    for name, n in counts.items():
-        detail, worked = span(activity, 'ME' if name == 'You' else name, n)
-        rows.append({'name': name, 'tasks': n, 'rate': n / max(worked, 1),
-                     'detail': detail})
-    rows.sort(key=lambda r: (-r['rate'], -r['tasks']))
-    lines = [f"🏆 Daily leaderboard — {day_start:%a %d %b %H:%M} to "
-             f"{day_end:%a %d %b %H:%M}"]
-    for i, r in enumerate(rows, start=1):
-        mark = ' ⬅️ you' if r['name'] == 'You' else ''
-        lines.append(f"{i}. {r['name']}: {r['tasks']}{r['detail']}{mark}")
-    idle = [name for name in TEAM.values()
-            if name not in counts and name in activity]
-    if idle:
-        lines.append(f"😴 On Telegram, no CS tasks: {', '.join(sorted(idle))}")
-    if off:
-        top = sorted(off.items(), key=lambda kv: -kv[1])[:6]
-        lines.append(f"👤 Answered by people not on the roster: {sum(off.values())}"
-                     f" — {', '.join(f'{k} ({v})' for k, v in top)}")
-    return lines
-
-
 def main():
     if len(sys.argv) == 3:
         start = datetime.fromisoformat(sys.argv[1]).replace(tzinfo=TZ)
@@ -430,52 +370,42 @@ def main():
                   " — nothing to report")
             return
         start, end = window
-    day_end = end
-    day_start = end - timedelta(hours=DAY_HOURS)
 
     with TelegramClient(session, api_id, api_hash) as client:
-        chats, activity, shift_activity = collect_dialogs(
-            client, day_start.astimezone(UTC), day_end.astimezone(UTC),
-            start.astimezone(UTC), end.astimezone(UTC))
+        chats, activity = collect_dialogs(
+            client, start.astimezone(UTC), end.astimezone(UTC))
 
         groups = [c for c in chats if not c['is_user']]
         dms = [c for c in chats if c['is_user'] and not c['internal']]
-        active_groups = [c for c in groups if c['shift_received'] > 0]
-        active_dms = [c for c in dms if c['shift_received'] > 0]
-        total_received = sum(c['shift_received'] for c in chats)
-        total_sent = sum(c['shift_sent'] for c in chats)
+        active_groups = [c for c in groups if c['received'] > 0]
+        active_dms = [c for c in dms if c['received'] > 0]
+        total_received = sum(c['received'] for c in chats)
+        total_sent = sum(c['sent'] for c in chats)
 
         lines = [
             f"📊 Shift report — {start.strftime('%a %d %b, %H:%M')}–{end.strftime('%H:%M')}",
             f"👥 Active groups: {len(active_groups)} · 👤 DMs: {len(active_dms)}",
         ]
 
-        board = []
         if anthropic_key:
             todo = [c for c in chats if c['received'] > 0 and not c['internal']]
             tasks, notes, errors = analyze_tasks(client, todo)
-            shift_chats = {c['name'] for c in chats
-                           if c['shift_received'] or c['shift_sent']}
             for t in tasks:
                 t['who'] = handler(t['handled_by'])
-                t['when'] = parse_at(t.get('at'), day_start, day_end)
-                t['in_shift'] = (start <= t['when'] < end if t['when']
-                                 else t['group'] in shift_chats)
-            shift_tasks = [t for t in tasks if t['in_shift']]
-            by_me = [t for t in shift_tasks if t['who'] == 'ME']
+            by_me = [t for t in tasks if t['who'] == 'ME']
             my_dms = [t for t in by_me if t['is_user']]
-            team_tasks = [t for t in shift_tasks if t['who'].lower() in TEAM_LOWER]
-            unanswered = [t for t in shift_tasks if t['who'] == 'nobody'
+            team_tasks = [t for t in tasks if t['who'].lower() in TEAM_LOWER]
+            unanswered = [t for t in tasks if t['who'] == 'nobody'
                           or t['who'].lower() in CLIENT_LOWER]
-            outside = [t for t in shift_tasks
+            outside = [t for t in tasks
                        if t['who'].lower() in SALES_LOWER
                        or t['who'].lower() in ACCOUNTING_LOWER]
 
             def pct(n):
-                return f"{round(n * 100 / len(shift_tasks))}%" if shift_tasks else "0%"
+                return f"{round(n * 100 / len(tasks))}%" if tasks else "0%"
 
-            detail, _ = span(shift_activity, 'ME', len(by_me))
-            lines.append(f"📋 CS tasks: {len(shift_tasks)}")
+            detail, _ = span(activity, 'ME', len(by_me))
+            lines.append(f"📋 CS tasks: {len(tasks)}")
             lines.append(f"✅ You: {len(by_me)} ({pct(len(by_me))}){detail}")
             lines.append(f"   ↳ {len(by_me) - len(my_dms)} in groups, "
                          f"{len(my_dms)} in DMs")
@@ -492,14 +422,13 @@ def main():
                     lines.append(f"   • {tag}{t['group']} — {t['label']}")
             if errors:
                 lines.append(f"⚠️ {errors} chat(s) could not be analyzed")
-            board = leaderboard(tasks, activity, day_start, day_end)
         else:
-            answered = [c for c in active_groups + active_dms if c['shift_sent'] > 0]
-            silent = [c for c in active_groups + active_dms if c['shift_sent'] == 0]
+            answered = [c for c in active_groups + active_dms if c['sent'] > 0]
+            silent = [c for c in active_groups + active_dms if c['sent'] == 0]
             lines.append(f"✅ You replied in: {len(answered)}")
             lines.append(f"❌ No reply: {len(silent)}")
-            for c in sorted(silent, key=lambda c: -c['shift_received']):
-                lines.append(f"   • {c['name']} ({c['shift_received']} msgs)")
+            for c in sorted(silent, key=lambda c: -c['received']):
+                lines.append(f"   • {c['name']} ({c['received']} msgs)")
 
         lines.append(f"💬 Messages: {total_received} received, {total_sent} sent by you")
         report = fit_telegram(lines)
@@ -507,13 +436,8 @@ def main():
         print(report)
         client.send_message('me', report)
 
-        if board:
-            board_text = fit_telegram(board)
-            print(board_text)
-            client.send_message('me', board_text)
-
         if anthropic_key and notes:
-            stats = (f"{len(shift_tasks)} CS tasks in your shift, you handled "
+            stats = (f"{len(tasks)} CS tasks in your shift, you handled "
                      f"{len(by_me)} ({len(my_dms)} of them in DMs), "
                      f"{len(unanswered)} left unanswered")
             try:

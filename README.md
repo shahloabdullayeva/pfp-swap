@@ -45,27 +45,27 @@ alone, because the rota wanted the same thing it wanted when you overrode it.
 The next boundary that genuinely differs takes over again.
 
 **Shift report** — `shift_report.py`  
-Runs right after each shift — 00:10 after an 8-hour day, 04:10 after a 12-hour one. Sends up to three messages to Saved Messages: the shift report, a daily leaderboard, and a short review. With `ANTHROPIC_API_KEY` set in `.env`, Claude reads each active chat's transcript and counts distinct customer-service tasks (card activation, money code, …) and who handled each one. Without a key it falls back to per-chat message counts.
+Runs right after each shift — 00:10 after an 8-hour day, 04:10 after a 12-hour one. Sends two messages to Saved Messages: the shift report and a short review. With `ANTHROPIC_API_KEY` set in `.env`, Claude reads each active chat's transcript and counts distinct customer-service tasks (card activation, money code, …) and who handled each one. Without a key it falls back to per-chat message counts.
 
-It reads **two windows** in one pass. The *shift window* is Charlotte's own hours and drives her report — her tasks, what went unanswered, her message counts. The *day window* is the 24 hours ending when her shift ends, and drives the leaderboard, so a teammate who works 21:00–03:00 is measured over his whole night instead of only the part that overlaps her. Each task carries the timestamp Claude read off the transcript, which is what sorts it into the shift window or not; a 24-hour window makes an `HH:MM` unambiguous, so no date guessing is involved.
+It reads **one window: Charlotte's own shift.** Transcripts stop at the hours she was on duty, so a request raised before she came on or after she logged off is never in front of the model, and every task it finds is hers to be measured against. A teammate who answered inside her hours is still named and counted — that is what the "teammates, same hours" line is — but nobody's night is scanned for their own sake.
 
-Because the day window ends when Charlotte logs off, work done *after* her shift — the after-hours crew at 02:00 — lands in the next day's leaderboard rather than that night's. Every hour is still counted exactly once and nobody is double-counted or lost; it is simply shifted by one cycle. Running the report later (a `shift_report.py <start> <end>` by hand, or a later cron line) is what would put the night crew in the same report as the evening they followed.
+The daily leaderboard was **removed on 2026-09-12**. It needed a 24-hour window across every chat, which roughly doubled the number of model calls per night for a ranking of other people's shifts; the account ran out of API credit and the report went blank for three nights. What she wants back is her own shift. It is recoverable from git history if the comparison is ever wanted again.
 
 **DMs are work.** Direct messages get the same task analysis as groups and count toward Charlotte's totals — she spends more time there than in groups. DMs with staff are excluded entirely, in both directions: a colleague's question is not her outstanding customer work. A DM containing only a phone call is contact, not an unanswered request, so it no longer lands in the no-reply list.
 
-Everyone is credited fairly: each person's on-duty window and the number of distinct hours they posted in are derived from the messages, and their rate is tasks per hour actually worked. The leaderboard ranks on that rate, not raw share, because teammates start at different times and a raw percentage rewards whoever sat online longest.
+Her own on-duty window and the number of distinct hours she posted in are derived from the messages, so the headline rate is tasks per hour actually worked rather than raw share — she starts before most of the team and a raw percentage would only reward whoever sat online longest.
 
 The same pass also grades Charlotte's own handling chat by chat — what she did well, and where she was slow, curt, or never followed up on a "checking…" — and a final call turns those observations into a short review ("🧭 How your shift went") sent as its own message so a long report can't truncate it away.
 
 ### The roster
 
-`roster.py` says who is who, and the leaderboard ranks **only** the customer-service team. Everyone else who answers a customer — sales, accounting, fleet services like Fleet 24/7, dispatchers, the customer's own staff — is counted and named on a separate line, never mixed into the team tally.
+`roster.py` says who is who, and only the customer-service team counts as teammates. Everyone else who answers a customer — sales, accounting, fleet services like Fleet 24/7, dispatchers, the customer's own staff — is counted and named on a separate line, never mixed into the team tally.
 
 People are keyed by **Telegram user ID, not name**. Names are unusable as identities here: agents use an alias plus their real name (`Ben Kennedy (Baxtiyor)`), two different colleagues both go by Max — one in sales, one in accounting — and one teammate's account shows a bare `v`. Matching on the first word of a name merged all of those and turned `Fleet 24/7`, a fleet service shared by six clients, into a fictional agent called "Fleet". IDs also survive an alias change, which names do not.
 
 Transcripts are labelled with the roster's own name for each person before Claude sees them, so attribution comes back in exactly the spelling the code expects, and the two Maxes stay apart.
 
-`python3 roster.py [days]` lists everyone who posted in the last few days and is *not* on the roster, sorted by how many chats they appeared in — staff show up across many chats, a customer usually in one. That is how a new hire gets added: run it, find them, paste the ID into `TEAM`. Anyone missing from the roster still shows up in the report under "answered by people not on the roster", so a missing teammate is visible rather than silently dropped.
+`python3 roster.py [days]` lists everyone who posted in the last few days and is *not* on the roster, sorted by how many chats they appeared in — staff show up across many chats, a customer usually in one. That is how a new hire gets added: run it, find them, paste the ID into `TEAM`. Anyone missing from the roster is attributed by the name they post under rather than being folded into the team tally, so a missing teammate shows up as an unfamiliar name instead of being silently dropped.
 
 `SALES_PEOPLE` / `CLIENT_PEOPLE` (comma-separated) in `.env` still add names on top of the roster for anyone whose ID has not been collected yet.
 
