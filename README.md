@@ -71,7 +71,11 @@ Transcripts are labelled with the roster's own name for each person before Claud
 
 ### Models
 
-The report uses `claude-opus-5`; override with `REPORT_MODEL` in `.env`. `ANALYSIS_WORKERS` (default 5) sets how many chats are analysed at once — the day-long window roughly doubled the number of calls, and running them one at a time made the report take too long.
+The report uses **`claude-sonnet-5`**; override with `REPORT_MODEL` in `.env`. It ran on `claude-opus-5` from 27 Aug to 12 Sep, which at roughly 100 chats a night cost about $1.57 a night against Sonnet's $0.42 — the analysis is reading a transcript and saying who answered what, which does not need the more expensive model.
+
+`TASK_PROMPT` is sent with `cache_control: ephemeral`. It is the same ~1,100 tokens on every one of the ~100 calls, about 86% of all input, so caching it is most of what the report pays for. Sonnet's minimum cacheable prefix is 1,024 tokens and the prompt only just clears it, so the run prints `N input tokens billed, M read from cache` to stderr — that lands in `cron.log` and is the proof it is actually caching. If `M` is 0, the prompt has fallen under the minimum: lengthen it, or set `REPORT_MODEL=claude-opus-5`, whose minimum is 512.
+
+`ANALYSIS_WORKERS` (default 5) sets how many chats are analysed at once; running them one at a time made the report take too long.
 
 A live shift watcher used to run alongside these, nudging about chats that looked unanswered. It was retired in August 2026 for crying wolf: it nudged when the customer had gone quiet after a reply, it did not understand that a screenshot is often the answer itself, and it could not see reactions, so a chat closed with an emoji looked ignored.
 

@@ -24,7 +24,7 @@ api_hash = os.environ['API_HASH']
 session_string = os.environ.get('SESSION_STRING')
 session = StringSession(session_string) if session_string else 'charlotte_session'
 anthropic_key = os.environ.get('ANTHROPIC_API_KEY')
-REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-opus-5')
+REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-sonnet-5')
 
 
 def _roster(var, default):
@@ -230,7 +230,8 @@ def analyze_tasks(tg, groups):
         response = ai.messages.parse(
             model=REPORT_MODEL,
             max_tokens=4000,
-            system=TASK_PROMPT,
+            system=[{"type": "text", "text": TASK_PROMPT,
+                     "cache_control": {"type": "ephemeral"}}],
             messages=[{
                 "role": "user",
                 "content": f"{'Direct message with' if g['is_user'] else 'Group'}: "
@@ -239,19 +240,23 @@ def analyze_tasks(tg, groups):
             }],
             output_format=GroupTasks,
         )
-        return response.parsed_output
+        return response.parsed_output, response.usage
 
     results = []
     notes = []
     errors = 0
     done = 0
+    cached = 0
+    billed = 0
     with ThreadPoolExecutor(max_workers=ANALYSIS_WORKERS) as pool:
         futures = {pool.submit(ask, g): g for g in todo}
         for future in as_completed(futures):
             g = futures[future]
             done += 1
             try:
-                out = future.result()
+                out, usage = future.result()
+                cached += usage.cache_read_input_tokens or 0
+                billed += usage.input_tokens or 0
                 for task in out.tasks:
                     results.append({'group': g['name'], 'label': task.label,
                                     'handled_by': task.handled_by, 'at': task.at,
@@ -276,6 +281,8 @@ def analyze_tasks(tg, groups):
         tg.delete_messages('me', progress)
     except Exception:
         pass
+    print(f"{REPORT_MODEL}: {billed} input tokens billed, {cached} read from cache",
+          file=sys.stderr)
     return results, notes, errors
 
 
