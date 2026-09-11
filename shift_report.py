@@ -24,7 +24,7 @@ api_hash = os.environ['API_HASH']
 session_string = os.environ.get('SESSION_STRING')
 session = StringSession(session_string) if session_string else 'charlotte_session'
 anthropic_key = os.environ.get('ANTHROPIC_API_KEY')
-REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-sonnet-5')
+REPORT_MODEL = os.environ.get('REPORT_MODEL', 'claude-haiku-4-5')
 
 
 def _roster(var, default):

@@ -71,9 +71,17 @@ Transcripts are labelled with the roster's own name for each person before Claud
 
 ### Models
 
-The report uses **`claude-sonnet-5`**; override with `REPORT_MODEL` in `.env`. It ran on `claude-opus-5` from 27 Aug to 12 Sep, which at roughly 100 chats a night cost about $1.57 a night against Sonnet's $0.42 — the analysis is reading a transcript and saying who answered what, which does not need the more expensive model.
+The report uses **`claude-haiku-4-5`**, the cheapest model; override with `REPORT_MODEL` in `.env`. It ran on `claude-opus-5` from 27 Aug to 12 Sep and that is what emptied the API balance.
 
-`TASK_PROMPT` is sent with `cache_control: ephemeral`. It is the same ~1,100 tokens on every one of the ~100 calls, about 86% of all input, so caching it is most of what the report pays for. Sonnet's minimum cacheable prefix is 1,024 tokens and the prompt only just clears it, so the run prints `N input tokens billed, M read from cache` to stderr — that lands in `cron.log` and is the proof it is actually caching. If `M` is 0, the prompt has fallen under the minimum: lengthen it, or set `REPORT_MODEL=claude-opus-5`, whose minimum is 512.
+| `REPORT_MODEL` | per night | per month | prompt cached |
+|---|---:|---:|---|
+| `claude-opus-5` | $1.06 | ~$23 | yes (min 512) |
+| `claude-sonnet-5` | $0.42 | ~$9 | yes, barely (min 1,024) |
+| `claude-haiku-4-5` | $0.31 | ~$7 | **no** (min 4,096) |
+
+`TASK_PROMPT` is sent with `cache_control: ephemeral`. It is the same ~1,100 tokens on every one of the ~100 calls, about 86% of all input, so caching it is most of what the report pays for on the larger models. **Haiku's minimum cacheable prefix is 4,096 tokens, so on Haiku the marker does nothing** — silently, with no error. That is why Haiku is only $2/month cheaper than Sonnet despite costing half as much per token.
+
+The run prints `N input tokens billed, M read from cache` to stderr, which lands in `cron.log`. On Haiku `M` is always 0 and that is expected. On Sonnet or Opus an `M` of 0 means the prompt has fallen under that model's minimum — lengthen it, or move to a model with a lower one.
 
 `ANALYSIS_WORKERS` (default 5) sets how many chats are analysed at once; running them one at a time made the report take too long.
 
